@@ -127,4 +127,4 @@ python servidor_api.py > servidor_factory.log 2>&1 &
 
 echo "🎨 6. Iniciando ComfyUI..."
 cd /workspace/ComfyUI
-python main.py --port 8188 --listen 0.0.0.0
+python main.py --port 8188 --listen 0.0.0.0 --highvram

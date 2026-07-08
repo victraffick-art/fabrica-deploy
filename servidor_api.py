@@ -134,19 +134,23 @@ def obtener_pod_id_activo_desde_api(api_key):
 
 @app.get("/api/config")
 def get_config():
-    api_key = os.environ.get("RUNPOD_API_KEY")
-    pod_id = os.environ.get("RUNPOD_POD_ID")
+    api_key = None
+    pod_id = None
+    
     ruta_config = os.path.join(directorio_actual, "runpod_config.json")
     if os.path.exists(ruta_config):
         try:
             with open(ruta_config, "r") as f:
                 data = json.load(f)
-                if not api_key:
-                    api_key = data.get("api_key")
-                if not pod_id:
-                    pod_id = data.get("pod_id")
+                api_key = data.get("api_key")
+                pod_id = data.get("pod_id")
         except:
             pass
+            
+    if not api_key:
+        api_key = os.environ.get("RUNPOD_API_KEY")
+    if not pod_id:
+        pod_id = os.environ.get("RUNPOD_POD_ID")
             
     # Intentar buscar dinámicamente el pod activo usando la API Key de RunPod
     if api_key:
