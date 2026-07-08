@@ -170,6 +170,13 @@ async function pollStatus() {
             btnRedactar.disabled = false;
             btnRastrear.disabled = false;
             progressSpinner.style.display = "none";
+            
+            // Detener el polling si la producción ya finalizó por completo
+            if (data.etapa === "Completado" && pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+                console.log("🛑 Polling detenido: Producción completada.");
+            }
         }
         
         // Imprimir logs
@@ -194,6 +201,11 @@ async function pollStatus() {
         // Si finalizó exitosamente, cargar assets generados
         if (data.etapa === "Completado" && data.directorio_salida) {
             const folderName = data.directorio_salida.split(/[\\/]/).pop();
+            
+            // Evitar bucle infinito de recarga del reproductor de video en Chrome
+            if (activeFolderName === folderName) {
+                return;
+            }
             activeFolderName = folderName;
             
             // Cargar datos locales en español si no se han cargado
@@ -353,7 +365,10 @@ btnRedactar.addEventListener("click", async () => {
             body: JSON.stringify({ 
                 tema: tema,
                 duracion_min: parseFloat(selectDuracion.value) || 1.0,
-                clonar_idiomas: clonarIdiomas
+                clonar_idiomas: clonarIdiomas,
+                estructura: document.getElementById("select-narrativa").value,
+                intro_pers: document.getElementById("txt-intro-pers").value.trim(),
+                cierre_pers: document.getElementById("txt-cierre-pers").value.trim()
             })
         });
         
@@ -504,6 +519,12 @@ btnProducir.addEventListener("click", async () => {
         sub_color_iluminado: document.getElementById("select-sub-color-iluminado").value,
         sub_color_fondo: document.getElementById("select-sub-color-fondo").value,
         sub_animacion: document.getElementById("select-sub-animacion").value,
+        sub_size: parseInt(document.getElementById("select-sub-size").value) || 64,
+        sub_outline: parseInt(document.getElementById("select-sub-outline").value) || 3,
+        sub_align: document.getElementById("select-sub-align").value,
+        sub_max_words: document.getElementById("select-sub-max-words").value,
+        sub_margin_v: parseInt(document.getElementById("select-sub-margin-v").value) || 150,
+        video_quality: document.getElementById("select-video-quality").value,
         tono_voz: document.getElementById("select-sub-pitch").value,
         velocidad_voz: document.getElementById("select-sub-rate").value,
         volumen_musica: parseFloat(document.getElementById("select-volumen-musica").value),
@@ -550,8 +571,19 @@ function actualizarSubtitulosLivePreview() {
     const previewContainer = document.getElementById("sub-preview-display");
     if (!previewContainer) return;
     
+    // Leer valores de sliders y actualizar etiquetas
+    const sizeVal = document.getElementById("select-sub-size").value;
+    document.getElementById("val-sub-size").innerText = `${sizeVal} pt`;
+    
+    const outlineVal = document.getElementById("select-sub-outline").value;
+    document.getElementById("val-sub-outline").innerText = `${outlineVal} px`;
+    
+    const marginVVal = document.getElementById("select-sub-margin-v").value;
+    document.getElementById("val-sub-margin-v").innerText = `${marginVVal} px`;
+    
     const font = document.getElementById("select-sub-fuente").value;
     const colorInactivo = document.getElementById("select-sub-color-fondo").value;
+    const alignVal = document.getElementById("select-sub-align").value;
     
     const cssColorMap = {
         white: "#ffffff",
@@ -560,19 +592,50 @@ function actualizarSubtitulosLivePreview() {
         red: "#ff3333",
         green: "#39ff14",
         cyan: "#00ffff",
-        magenta: "#ff00ff",
-        orange: "#ffaa00",
-        purple: "#b026ff"
+        magenta: "#ff00ff"
     };
     
     const colInactiveHex = cssColorMap[colorInactivo] || "#ffffff";
     
+    // Aplicar tipografía
     previewContainer.style.fontFamily = `"${font}", "Arial Black", sans-serif`;
+    
+    // Aplicar tamaño a nivel de preview (escalado para la caja)
+    const scaleFactor = 0.5;
+    previewContainer.style.fontSize = `${sizeVal * scaleFactor}px`;
+    
+    // Aplicar alineación flexbox
+    if (alignVal.includes("Centrado")) {
+        previewContainer.style.justifyContent = "center";
+    } else if (alignVal.includes("Izquierda")) {
+        previewContainer.style.justifyContent = "flex-start";
+    } else {
+        previewContainer.style.justifyContent = "flex-end";
+    }
+    
+    // Escalar el margen vertical para ajustarse al tamaño del simulador
+    previewContainer.style.bottom = `${marginVVal * 0.12}px`;
+    
+    // Crear sombra/borde según outline
+    const out = parseInt(outlineVal);
+    let shadowStr = "";
+    if (out > 0) {
+        for (let x = -out; x <= out; x++) {
+            for (let y = -out; y <= out; y++) {
+                if (x !== 0 || y !== 0) {
+                    shadowStr += `${x}px ${y}px 0px #000, `;
+                }
+            }
+        }
+        shadowStr = shadowStr.slice(0, -2);
+    } else {
+        shadowStr = "none";
+    }
     
     const words = previewContainer.querySelectorAll(".preview-word");
     words.forEach((w) => {
         w.style.color = colInactiveHex;
-        w.style.textShadow = "2px 2px 0px #000, -2px -2px 0px #000, 2px -2px 0px #000, -2px 2px 0px #000";
+        w.style.textShadow = shadowStr;
         w.style.transform = "scale(1)";
         w.style.transition = "all 0.2s ease";
     });
@@ -601,9 +664,7 @@ function iniciarAnimacionLivePreview() {
             red: "#ff3333",
             green: "#39ff14",
             cyan: "#00ffff",
-            magenta: "#ff00ff",
-            orange: "#ffaa00",
-            purple: "#b026ff"
+            magenta: "#ff00ff"
         };
         const colInactiveHex = cssColorMap[colorInactivo] || "#ffffff";
         const colActiveHex = cssColorMap[colorIluminado] || "#ffff00";
@@ -617,11 +678,15 @@ function iniciarAnimacionLivePreview() {
             for (let i = 0; i <= activeIndex; i++) {
                 if (words[i]) words[i].style.color = colActiveHex;
             }
-        } else {
+        } else if (animacion === "pop") {
             if (words[activeIndex]) {
                 words[activeIndex].style.color = colActiveHex;
                 words[activeIndex].style.transform = "scale(1.15)";
             }
+        } else {
+            words.forEach((w) => {
+                w.style.color = colInactiveHex;
+            });
         }
         
         activeIndex = (activeIndex + 1) % (words.length + 1);
@@ -678,9 +743,22 @@ async function init() {
     });
 
     // Event listeners para la vista previa de subtítulos
-    ["select-sub-fuente", "select-sub-color-fondo", "select-sub-color-iluminado", "select-sub-animacion"].forEach(id => {
+    ["select-sub-fuente", "select-sub-color-fondo", "select-sub-color-iluminado", "select-sub-animacion", "select-sub-align", "select-sub-max-words"].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
+            el.addEventListener("change", () => {
+                actualizarSubtitulosLivePreview();
+                iniciarAnimacionLivePreview();
+            });
+        }
+    });
+
+    ["select-sub-size", "select-sub-outline", "select-sub-margin-v"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener("input", () => {
+                actualizarSubtitulosLivePreview();
+            });
             el.addEventListener("change", () => {
                 actualizarSubtitulosLivePreview();
                 iniciarAnimacionLivePreview();
@@ -696,6 +774,12 @@ async function init() {
     if (competidorVideoIdInput) {
         competidorVideoIdInput.addEventListener("input", actualizarCompetitorThumbPreview);
         actualizarCompetitorThumbPreview();
+    }
+
+    // Adaptar aspecto del simulador de video según la orientación elegida
+    if (selectOrientacion) {
+        selectOrientacion.addEventListener("change", actualizarAspectoSimulador);
+        actualizarAspectoSimulador();
     }
 
     const online = await verificarConexion();
@@ -777,6 +861,177 @@ if (btnRegenerarMinia) {
             btnRegenerarMinia.innerText = "🔄 Re-generar Solo Miniatura";
         }
     });
+}
+
+function actualizarAspectoSimulador() {
+    const screen = document.getElementById("video-simulator-screen");
+    const badge = document.getElementById("simulator-aspect-badge");
+    if (!screen || !badge || !selectOrientacion) return;
+    
+    const orientacion = selectOrientacion.value;
+    if (orientacion === "vertical") {
+        screen.style.width = "220px";
+        screen.style.aspectRatio = "9/16";
+        badge.innerText = "VERTICAL (9:16)";
+        badge.style.background = "#e11d48"; // Reels deep pink
+    } else {
+        screen.style.width = "100%";
+        screen.style.aspectRatio = "16/9";
+        badge.innerText = "HORIZONTAL (16:9)";
+        badge.style.background = "#ff0000"; // YouTube Red
+    }
+}
+
+// --- LOGICA DE MARKETPLACE Y BUSQUEDA VIRAL ---
+const btnBuscarYoutube = document.getElementById("btn-buscar-youtube");
+
+if (btnBuscarYoutube) {
+    btnBuscarYoutube.addEventListener("click", async () => {
+        const searchQueryInput = document.getElementById("search-query");
+        const searchDateSelect = document.getElementById("search-date");
+        const searchOrderSelect = document.getElementById("search-order");
+        const searchLangSelect = document.getElementById("search-lang");
+        const searchDurationSelect = document.getElementById("search-duration");
+        const searchLimitSelect = document.getElementById("search-limit");
+        
+        const searchResultsContainer = document.getElementById("search-results-container");
+        const searchResultsGrid = document.getElementById("search-results-grid");
+        
+        const query = searchQueryInput.value.trim();
+        if (!query) {
+            alert("Por favor ingresa un término o nicho de búsqueda.");
+            return;
+        }
+        
+        // Bloquear interfaz y mostrar cargador animado
+        btnBuscarYoutube.disabled = true;
+        btnBuscarYoutube.innerText = "⏳ BUSCANDO TENDENCIAS...";
+        
+        // Mostrar de inmediato el contenedor y dibujar la animación de carga
+        searchResultsGrid.innerHTML = `
+            <div class="search-loader-container">
+                <div class="spinner-glow"></div>
+                <div class="loader-text">
+                    Buscando en la API oficial de YouTube, rastreando estadísticas de canales, calculando Outlier Ratios y estimando ingresos del nicho...
+                </div>
+            </div>
+        `;
+        searchResultsContainer.style.display = "block";
+        
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/nicho/buscar`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    query: query,
+                    fecha: searchDateSelect.value,
+                    orden: searchOrderSelect.value,
+                    limite: parseInt(searchLimitSelect.value),
+                    idioma: searchLangSelect.value,
+                    duracion: searchDurationSelect.value
+                })
+            });
+            
+            if (res.ok) {
+                const data = await res.json();
+                if (data.videos && data.videos.length > 0) {
+                    mostrarResultadosMarketplace(data.videos, searchResultsGrid, searchResultsContainer);
+                } else {
+                    searchResultsGrid.innerHTML = `<div style="text-align:center; padding: 40px; color:#94a3b8; font-style:italic; grid-column: 1 / -1;">No se encontraron videos populares con los filtros seleccionados.</div>`;
+                }
+            } else {
+                const err = await res.json();
+                searchResultsGrid.innerHTML = `<div style="text-align:center; padding: 40px; color:#f87171; font-weight:bold; grid-column: 1 / -1;">Error de búsqueda: ${err.detail || "Error desconocido"}</div>`;
+            }
+        } catch (e) {
+            searchResultsGrid.innerHTML = `<div style="text-align:center; padding: 40px; color:#f87171; font-weight:bold; grid-column: 1 / -1;">Error de conexión. Asegúrate de que el servidor local esté ejecutándose.</div>`;
+        } finally {
+            btnBuscarYoutube.disabled = false;
+            btnBuscarYoutube.innerText = "🔍 BUSCAR VIDEOS GANADORES";
+        }
+    });
+}
+
+function mostrarResultadosMarketplace(videos, resultsGrid, resultsContainer) {
+    resultsGrid.innerHTML = "";
+    videos.forEach(v => {
+        const card = document.createElement("div");
+        card.className = "marketplace-card";
+        card.style.display = "flex";
+        card.style.gap = "12px";
+        card.style.background = "rgba(30, 41, 59, 0.8)";
+        card.style.border = "1px solid rgba(255, 255, 255, 0.08)";
+        card.style.borderRadius = "var(--radius-sm)";
+        card.style.padding = "12px";
+        card.style.transition = "all 0.2s ease";
+        
+        // Color badge Outlier
+        let outlierBg = "rgba(245, 158, 11, 0.15)";
+        let outlierColor = "#f59e0b";
+        let outlierBorder = "rgba(245, 158, 11, 0.3)";
+        if (v.outlier_ratio >= 150) {
+            outlierBg = "rgba(239, 68, 68, 0.15)";
+            outlierColor = "#ef4444";
+            outlierBorder = "rgba(239, 68, 68, 0.3)";
+        }
+        
+        card.innerHTML = `
+            <div style="width: 100px; aspect-ratio: 16/9; border-radius: 4px; overflow: hidden; position: relative; flex-shrink: 0; background: #000;">
+                <img src="${v.thumbnail_url}" style="width: 100%; height: 100%; object-fit: cover;">
+                <span style="position: absolute; bottom: 3px; right: 3px; background: rgba(0,0,0,0.85); color: #fff; font-size: 0.65rem; padding: 2px 4px; border-radius: 2px; font-weight: bold;">${v.duration_fmt}</span>
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; min-width: 0;">
+                <h4 class="video-title-header" style="font-size: 0.85rem; color: #38bdf8; font-weight: 700; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor:pointer;"></h4>
+                <span style="font-size: 0.72rem; color: #94a3b8; margin-top: 2px; display: block;">📺 ${v.channelTitle} (${v.subscribers_formatted} subs)</span>
+                <div style="display: flex; gap: 6px; align-items: center; margin-top: 4px; flex-wrap: wrap;">
+                    <span style="font-size: 0.65rem; background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid rgba(16, 185, 129, 0.3);">Vistas: ${v.views_formatted}</span>
+                    <span style="font-size: 0.65rem; background: ${outlierBg}; color: ${outlierColor}; padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid ${outlierBorder};">Outlier: ${v.outlier_ratio.toFixed(0)}%</span>
+                    <span style="font-size: 0.65rem; background: rgba(59, 130, 246, 0.15); color: #3b82f6; padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid rgba(59, 130, 246, 0.3);">Ganancia: $${v.earnings_min.toFixed(0)}-$${v.earnings_max.toFixed(0)}</span>
+                </div>
+                <div class="select-btn-container" style="margin-top: 8px;"></div>
+            </div>
+        `;
+        
+        // Asignar título de manera segura
+        const titleHeader = card.querySelector(".video-title-header");
+        titleHeader.textContent = v.title;
+        titleHeader.title = v.title;
+        
+        // Botón con listener seguro
+        const selectBtn = document.createElement("button");
+        selectBtn.className = "btn btn-secondary btn-small";
+        selectBtn.style.alignSelf = "flex-start";
+        selectBtn.style.padding = "3px 10px";
+        selectBtn.style.fontSize = "0.7rem";
+        selectBtn.style.background = "var(--primary-color)";
+        selectBtn.style.border = "none";
+        selectBtn.style.cursor = "pointer";
+        selectBtn.textContent = "👉 Seleccionar Tema";
+        
+        selectBtn.addEventListener("click", () => {
+            if (temaManual) {
+                temaManual.value = v.title;
+            }
+            if (competidorVideoIdInput) {
+                competidorVideoIdInput.value = v.id;
+                actualizarCompetitorThumbPreview();
+            }
+            
+            // Efecto visual de retroalimentación
+            alert(`¡Tema cargado con éxito!\n"${v.title}"`);
+            
+            // Scroll suave hacia el Paso 1
+            const cardPaso1 = document.getElementById("card-paso1");
+            if (cardPaso1) {
+                cardPaso1.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+        });
+        
+        card.querySelector(".select-btn-container").appendChild(selectBtn);
+        resultsGrid.appendChild(card);
+    });
+    
+    resultsContainer.style.display = "block";
 }
 
 init();

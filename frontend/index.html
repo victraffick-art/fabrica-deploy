@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fábrica de Videos - YouTube Studio</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%23FF0000%22><path d=%22M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.525 3.545 12 3.545 12 3.545s-7.525 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.026 0 12 0 12s0 3.974.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.863.508 9.388.508 9.388.508s7.525 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.974 24 12 24 12s0-3.974-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z%22/></svg>">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=5.3">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body class="dark-theme">
@@ -27,6 +27,79 @@
                 <span class="status-text">Buscando API local...</span>
             </div>
         </header>
+
+        <!-- SECCIÓN 1: INVESTIGACIÓN DE NICHO / MARKETPLACE (PANTALLA COMPLETA) -->
+        <section class="marketplace-section" style="max-width: var(--max-width); margin: 0 auto 30px auto; padding: 0 30px;">
+            <div class="glass-card" id="card-marketplace" style="width: 100%;">
+                <div class="card-header" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), transparent);">
+                    <span class="step-num">🔍</span>
+                    <h2>Fase 1: Investigación de Nicho & Marketplace Viral</h2>
+                </div>
+                <div class="card-body">
+                    <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                        <div class="input-group" style="flex: 2; min-width: 250px; margin-bottom: 10px;">
+                            <label for="search-query">Nicho o Palabras Clave de Búsqueda</label>
+                            <input type="text" id="search-query" placeholder="Ej: beneficios del ajo en ayunas, remedios caseros para la tos, salud natural...">
+                        </div>
+                        <div class="input-group" style="flex: 1; min-width: 140px; margin-bottom: 10px;">
+                            <label for="search-date">Filtro de Fecha</label>
+                            <select id="search-date">
+                                <option value="Últimas 24 horas">Últimas 24 horas</option>
+                                <option value="Última semana" selected>Última semana</option>
+                                <option value="Último mes">Último mes</option>
+                                <option value="Último año">Último año</option>
+                                <option value="Todo el tiempo">Todo el tiempo</option>
+                            </select>
+                        </div>
+                        <div class="input-group" style="flex: 1; min-width: 140px; margin-bottom: 10px;">
+                            <label for="search-order">Ordenar por</label>
+                            <select id="search-order">
+                                <option value="Vistas" selected>Vistas (Popularidad)</option>
+                                <option value="Relevancia">Relevancia</option>
+                                <option value="Fecha">Fecha de subida</option>
+                            </select>
+                        </div>
+                        <div class="input-group" style="flex: 1; min-width: 120px; margin-bottom: 10px;">
+                            <label for="search-lang">Idioma</label>
+                            <select id="search-lang">
+                                <option value="any" selected>Todos</option>
+                                <option value="es">Español</option>
+                                <option value="en">Inglés</option>
+                                <option value="pt">Portugués</option>
+                            </select>
+                        </div>
+                        <div class="input-group" style="flex: 1; min-width: 120px; margin-bottom: 10px;">
+                            <label for="search-duration">Duración</label>
+                            <select id="search-duration">
+                                <option value="any" selected>Cualquiera</option>
+                                <option value="short">Shorts/Cortos (<4m)</option>
+                                <option value="medium">Medio (4-20m)</option>
+                                <option value="long">Largo (>20m)</option>
+                            </select>
+                        </div>
+                        <div class="input-group" style="flex: 1; min-width: 100px; margin-bottom: 10px;">
+                            <label for="search-limit">Videos</label>
+                            <select id="search-limit">
+                                <option value="10" selected>10 videos</option>
+                                <option value="20">20 videos</option>
+                                <option value="30">30 videos</option>
+                                <option value="50">50 videos</option>
+                            </select>
+                        </div>
+                        <button id="btn-buscar-youtube" class="btn btn-accent" style="height: 42px; padding: 0 25px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            🔍 BUSCAR VIDEOS GANADORES
+                        </button>
+                    </div>
+                    
+                    <!-- Contenedor Grid scrollable de los videos encontrados (Ancho completo, grid responsive!) -->
+                    <div id="search-results-container" style="display:none; margin-top: 25px; max-height: 500px; overflow-y: auto; border: 1.5px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-md); padding: 15px; background: rgba(9, 13, 22, 0.7);">
+                        <div id="search-results-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 15px;">
+                            <!-- Los videos se insertarán aquí dinámicamente -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
 
         <!-- MAIN LAYOUT -->
         <main class="app-main">
@@ -76,6 +149,24 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
                                 <option value="10">10 Minutos</option>
                             </select>
                         </div>
+                        <div class="input-group">
+                            <label for="select-narrativa">Estructura Narrativa</label>
+                            <select id="select-narrativa">
+                                <option value="Mitos Desmentidos" selected>Mitos Desmentidos (Denuncia + Biología + Alternativa)</option>
+                                <option value="Neuro-Misterio">Neuro-Misterio (Gancho Polémico + Biología Celular + Protocolo)</option>
+                                <option value="Storytelling">Storytelling (Caso Real + Conflicto Médico + Recuperación)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="txt-intro-pers">Personalizar Introducción (Opcional)</label>
+                            <input type="text" id="txt-intro-pers" placeholder="Ej: Mi nombre es Víctor Tello y es para un canal de salud">
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="txt-cierre-pers">Personalizar Cierre / CTA (Opcional)</label>
+                            <input type="text" id="txt-cierre-pers" placeholder="Ej: Pide que se suscriban a mi canal de salud natural">
+                        </div>
                         
                         <button id="btn-redactar" class="btn btn-primary btn-full">
                             🧠 REDACTAR GUION E IDEAS (GEMINI)
@@ -92,6 +183,15 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
                         <div class="input-group">
                             <label for="runpod-url">ComfyUI RunPod Proxy URL</label>
                             <input type="text" id="runpod-url" value="https://qq2fleqmxl7d35-7777.proxy.runpod.net/proxy/8188">
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="select-video-quality">Velocidad / Calidad del Video (RunPod)</label>
+                            <select id="select-video-quality">
+                                <option value="Rápido">Rápido (Ahorro GPU: 15 pasos, 576x320) - ~45s/clip</option>
+                                <option value="Equilibrado" selected>Equilibrado (Recomendado: 20 pasos, 720x416) - ~90s/clip</option>
+                                <option value="Alta Calidad">Alta Calidad (Original: 30 pasos, 832x480) - ~150s/clip</option>
+                            </select>
                         </div>
                         
                         <div class="form-row">
@@ -198,17 +298,27 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
                             </div>
                         </div>
 
-                        <!-- SECCIÓN PERSONALIZACIÓN SUBTÍTULOS -->
+                        <!-- SECCIÓN PERSONALIZACIÓN SUBTÍTULOS Y SIMULADOR DE PANTALLA -->
                         <div class="sub-styling-box">
-                            <h3 class="box-title">Estilo de Subtítulos (Karaoke)</h3>
+                            <h3 class="box-title">Estilo de Subtítulos (Karaoke ASS)</h3>
                             
-                            <!-- CAJA DE PREVISUALIZACIÓN EN VIVO (ANIMADA DILIGENTEMENTE EN JS) -->
-                            <div class="sub-preview-display" id="sub-preview-display" style="background: #090d16; border: 1px dashed rgba(255, 0, 0, 0.25); border-radius: var(--radius-md); padding: 18px; margin-bottom: 15px; display: flex; justify-content: center; align-items: center; gap: 8px; min-height: 70px; font-size: 1.6rem; font-weight: 900; text-transform: uppercase;">
-                                <span class="preview-word">Beneficios</span>
-                                <span class="preview-word">del</span>
-                                <span class="preview-word">ajo</span>
-                                <span class="preview-word">en</span>
-                                <span class="preview-word">ayunas</span>
+                            <!-- SIMULADOR DE PANTALLA DE VIDEO (PREVIEW REAL DE SUBTÍTULOS) -->
+                            <div class="video-preview-simulator-box" style="margin-bottom: 20px;">
+                                <label style="margin-bottom: 8px; display: block; font-size: 0.9rem; color: var(--text-secondary);">Simulador de Pantalla (Vista Previa en Vivo)</label>
+                                <div id="video-simulator-screen" style="width: 100%; aspect-ratio: 16/9; position: relative; border-radius: var(--radius-md); overflow: hidden; background: linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)), url('https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=800&auto=format&fit=crop') center/cover no-repeat; border: 1.5px solid rgba(255, 0, 0, 0.35); box-shadow: 0 8px 32px rgba(0,0,0,0.5); transition: all 0.3s ease; margin: 0 auto;">
+                                    
+                                    <!-- Video Aspect Badge -->
+                                    <span id="simulator-aspect-badge" style="position: absolute; top: 10px; left: 10px; background: rgba(255, 0, 0, 0.85); color: #fff; font-size: 0.65rem; padding: 3px 8px; border-radius: 4px; font-weight: bold; letter-spacing: 0.5px; z-index: 5;">HORIZONTAL (16:9)</span>
+                                    
+                                    <!-- Subtitle Overlay Box -->
+                                    <div id="sub-preview-display" style="position: absolute; left: 10px; right: 10px; bottom: 25px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; font-size: 1.5rem; font-weight: 900; text-transform: uppercase; user-select: none; pointer-events: none; transition: all 0.2s ease;">
+                                        <span class="preview-word">Beneficios</span>
+                                        <span class="preview-word">del</span>
+                                        <span class="preview-word">ajo</span>
+                                        <span class="preview-word">en</span>
+                                        <span class="preview-word">ayunas</span>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-row">
@@ -219,7 +329,6 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
                                         <option value="Impact">Impact (Clickbait YouTube)</option>
                                         <option value="Montserrat">Montserrat Bold</option>
                                         <option value="Trebuchet MS">Trebuchet MS Bold</option>
-                                        <option value="Bebas Neue">Bebas Neue (Studio)</option>
                                         <option value="Arial">Arial Standard</option>
                                         <option value="Verdana">Verdana Bold</option>
                                     </select>
@@ -228,10 +337,12 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
                                     <label for="select-sub-animacion">Efecto / Animación</label>
                                     <select id="select-sub-animacion">
                                         <option value="karaoke">Barrido Suave (Estilo Karaoke)</option>
-                                        <option value="pop">Aparición Palabra por Palabra (Pop)</option>
+                                        <option value="pop">Aparición Palabra (Pop)</option>
+                                        <option value="static">Estático (Sin animación)</option>
                                     </select>
                                 </div>
                             </div>
+                            
                             <div class="form-row">
                                 <div class="input-group half">
                                     <label for="select-sub-color-fondo">Color Inactivo</label>
@@ -240,20 +351,58 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
                                         <option value="gray">Gris Claro</option>
                                         <option value="yellow">Amarillo Claro</option>
                                         <option value="cyan">Celeste Claro</option>
-                                        <option value="orange">Naranja Suave</option>
                                     </select>
                                 </div>
                                 <div class="input-group half">
-                                    <label for="select-sub-color-iluminado">Color de Iluminación</label>
+                                    <label for="select-sub-color-iluminado">Color Activo</label>
                                     <select id="select-sub-color-iluminado">
                                         <option value="yellow" selected>Amarillo Eléctrico</option>
                                         <option value="red">Rojo Alerta</option>
                                         <option value="green">Verde Limón</option>
                                         <option value="cyan">Celeste / Cyan</option>
                                         <option value="magenta">Magenta / Rosado</option>
-                                        <option value="orange">Naranja Encendido</option>
-                                        <option value="purple">Morado / Púrpura</option>
                                     </select>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="input-group half">
+                                    <label for="select-sub-size">Tamaño de Fuente (pt)</label>
+                                    <input type="range" id="select-sub-size" min="20" max="120" value="64" style="width:100%;">
+                                    <span id="val-sub-size" style="font-size:0.8rem; color:var(--accent-color); font-weight:bold;">64 pt</span>
+                                </div>
+                                <div class="input-group half">
+                                    <label for="select-sub-outline">Grosor de Borde (px)</label>
+                                    <input type="range" id="select-sub-outline" min="0" max="6" value="3" style="width:100%;">
+                                    <span id="val-sub-outline" style="font-size:0.8rem; color:var(--accent-color); font-weight:bold;">3 px</span>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="input-group half">
+                                    <label for="select-sub-align">Alineación</label>
+                                    <select id="select-sub-align">
+                                        <option value="Centrado (Abajo)">Centrado (Abajo)</option>
+                                        <option value="Izquierda (Abajo)">Izquierda (Abajo)</option>
+                                        <option value="Derecha (Abajo)">Derecha (Abajo)</option>
+                                    </select>
+                                </div>
+                                <div class="input-group half">
+                                    <label for="select-sub-max-words">Palabras por Pantalla</label>
+                                    <select id="select-sub-max-words">
+                                        <option value="2 palabras">2 palabras</option>
+                                        <option value="3 palabras" selected>3 palabras</option>
+                                        <option value="4 palabras">4 palabras</option>
+                                        <option value="Línea completa">Línea completa (Sin límite)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="input-group">
+                                    <label for="select-sub-margin-v">Margen Vertical (Posición en px)</label>
+                                    <input type="range" id="select-sub-margin-v" min="50" max="450" value="150" style="width:100%;">
+                                    <span id="val-sub-margin-v" style="font-size:0.8rem; color:var(--accent-color); font-weight:bold;">150 px</span>
                                 </div>
                             </div>
                         </div>
@@ -437,6 +586,6 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=5.3"></script>
 </body>
 </html>

@@ -43,8 +43,9 @@ fi
 
 # Verificar ComfyUI y Nodos
 echo "⏳ 4. Verificando repositorios y modelos..."
-if [ ! -d "/workspace/ComfyUI" ]; then
+if [ ! -f "/workspace/ComfyUI/main.py" ]; then
     echo "   Clonando ComfyUI..."
+    rm -rf /workspace/ComfyUI
     git clone https://github.com/comfyanonymous/ComfyUI.git /workspace/ComfyUI
     pip install -r /workspace/ComfyUI/requirements.txt
 fi
@@ -92,7 +93,7 @@ fi
 
 # Directorio de modelos
 MODELS_DIR=/workspace/ComfyUI/models
-mkdir -p $MODELS_DIR/wan_video $MODELS_DIR/text_encoders $MODELS_DIR/vae
+mkdir -p $MODELS_DIR/diffusion_models/Wan2.1 $MODELS_DIR/text_encoders $MODELS_DIR/vae $MODELS_DIR/checkpoints
 
 # Descarga de modelos (si no existen o pesan 0 bytes)
 descargar_si_falta() {
@@ -109,7 +110,7 @@ descargar_si_falta() {
     fi
 }
 
-descargar_si_falta "$MODELS_DIR/wan_video/wan2.1_t2v_1.3B_bf16.safetensors" \
+descargar_si_falta "$MODELS_DIR/diffusion_models/Wan2.1/wan2.1_t2v_1.3B_bf16.safetensors" \
     "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan2_1-T2V-1_3B_bf16.safetensors" \
     "Modelo Wan2.1 T2V"
 
@@ -120,6 +121,11 @@ descargar_si_falta "$MODELS_DIR/text_encoders/umt5-xxl-enc-bf16.safetensors" \
 descargar_si_falta "$MODELS_DIR/vae/Wan2_1_VAE_bf16.safetensors" \
     "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan2_1_VAE_bf16.safetensors" \
     "VAE Model"
+
+descargar_si_falta "$MODELS_DIR/checkpoints/sd_xl_base_1.0.safetensors" \
+    "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors" \
+    "Modelo SDXL Base 1.0"
+
 
 echo "🛰️ 5. Iniciando Backend API de la Fábrica en segundo plano..."
 cd /workspace/Canal_de_Salud_de_Victor

@@ -11,13 +11,21 @@ if hasattr(sys.stdout, 'reconfigure'):
     except:
         pass
 
-def guardar_ass_karaoke(submaker, ruta_ass, orientacion="horizontal", font_name="Arial Black", primary_color="yellow", secondary_color="white", effect_type="karaoke"):
+def guardar_ass_karaoke(submaker, ruta_ass, orientacion="horizontal", font_name="Arial Black", primary_color="yellow", secondary_color="white", effect_type="karaoke", max_words_per_line=3, font_size=None, outline_thickness=3, alignment=2, margin_v=None):
     """
     Convierte las marcas de tiempo por palabra de edge_tts en un archivo .ass con estilos dinámicos.
     Soporta tipografías, colores primarios/secundarios personalizados y efectos (barrido karaoke o palabra por palabra).
     """
-    fontsize = 34 if orientacion == "vertical" else 24
-    margin_v = 150 if orientacion == "vertical" else 40
+    # Si no se define el tamaño, usar valores por defecto dependientes de la orientación
+    if font_size is None or font_size == 0:
+        fontsize = 84 if orientacion == "vertical" else 64
+    else:
+        fontsize = font_size
+        
+    if margin_v is None or margin_v == 0:
+        margin_vertical = 360 if orientacion == "vertical" else 150
+    else:
+        margin_vertical = margin_v
     
     color_map = {
         "white": "&H00FFFFFF",
@@ -42,7 +50,7 @@ PlayResY: 720
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{fontsize},{col_prim},{col_sec},&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,1,2,10,10,{margin_v},1
+Style: Default,{font_name},{fontsize},{col_prim},{col_sec},&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_thickness},1,{alignment},10,10,{margin_vertical},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -62,8 +70,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         texto = cue.content
         
         if linea_actual:
-            largo_actual = sum(len(w[2]) for w in linea_actual) + len(linea_actual)
-            if (inicio - ult_fin > max_silencio_100ns) or (largo_actual + len(texto) > max_caracteres):
+            if max_words_per_line > 0:
+                # Partir por cantidad de palabras
+                debe_partir = len(linea_actual) >= max_words_per_line or (inicio - ult_fin > max_silencio_100ns)
+            else:
+                # Partir por cantidad de caracteres (original)
+                largo_actual = sum(len(w[2]) for w in linea_actual) + len(linea_actual)
+                debe_partir = (inicio - ult_fin > max_silencio_100ns) or (largo_actual + len(texto) > max_caracteres)
+                
+            if debe_partir:
                 lineas.append(linea_actual)
                 linea_actual = []
         
@@ -92,19 +107,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         texto_karaoke = ""
         ult_w_fin = start_time_100ns
         
-        for start_w, end_w, word in line:
-            silence_duration_cs = int((start_w - ult_w_fin) / 100000)
-            if silence_duration_cs > 0:
-                texto_karaoke += f"{{\\k{silence_duration_cs}}}"
-                
-            word_duration_cs = int((end_w - start_w) / 100000)
-            if word_duration_cs <= 0:
-                word_duration_cs = 1
-                
-            # Seleccionar animación/efecto: kf es barrido suave (karaoke), k es aparición inmediata (pop)
-            tag_efecto = "kf" if effect_type == "karaoke" else "k"
-            texto_karaoke += f"{{\\{tag_efecto}{word_duration_cs}}}{word} "
-            ult_w_fin = end_w
+        if effect_type == "static":
+            for start_w, end_w, word in line:
+                texto_karaoke += f"{word} "
+        else:
+            for start_w, end_w, word in line:
+                silence_duration_cs = int((start_w - ult_w_fin) / 100000)
+                if silence_duration_cs > 0:
+                    texto_karaoke += f"{{\\k{silence_duration_cs}}}"
+                    
+                word_duration_cs = int((end_w - start_w) / 100000)
+                if word_duration_cs <= 0:
+                    word_duration_cs = 1
+                    
+                # Seleccionar animación/efecto: kf es barrido suave (karaoke), k es aparición inmediata (pop)
+                tag_efecto = "kf" if effect_type == "karaoke" else "k"
+                texto_karaoke += f"{{\\{tag_efecto}{word_duration_cs}}}{word} "
+                ult_w_fin = end_w
             
         dialogos.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{texto_karaoke.strip()}")
         
@@ -113,7 +132,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         f.write("\n".join(dialogos))
     print(f"✅ Subtítulos de Karaoke ASS guardados con estilo personalizado en: {ruta_ass}")
 
-async def generar_audio_y_subtitulos(texto, ruta_mp3, ruta_srt, voz="es-MX-JorgeNeural", ruta_ass=None, orientacion="horizontal", font_name="Arial Black", primary_color="yellow", secondary_color="white", effect_type="karaoke", rate="+0%", pitch="+0Hz"):
+async def generar_audio_y_subtitulos(texto, ruta_mp3, ruta_srt, voz="es-MX-JorgeNeural", ruta_ass=None, orientacion="horizontal", font_name="Arial Black", primary_color="yellow", secondary_color="white", effect_type="karaoke", rate="+0%", pitch="+0Hz", max_words_per_line=3, font_size=None, outline_thickness=3, alignment=2, margin_v=None):
     """
     Genera el archivo de voz en off (mp3) y los subtítulos sincronizados (srt e ass para karaoke).
     """
@@ -143,7 +162,7 @@ async def generar_audio_y_subtitulos(texto, ruta_mp3, ruta_srt, voz="es-MX-Jorge
     
     # Si se pide ASS, generarlo con sus estilos
     if ruta_ass:
-        guardar_ass_karaoke(submaker, ruta_ass, orientacion, font_name, primary_color, secondary_color, effect_type)
+        guardar_ass_karaoke(submaker, ruta_ass, orientacion, font_name, primary_color, secondary_color, effect_type, max_words_per_line, font_size, outline_thickness, alignment, margin_v)
         
     print(f"✅ Voz guardada en: {ruta_mp3}")
 

@@ -77,7 +77,7 @@ def aplicar_parche_dns_desde_url(url):
     except Exception as e:
         print(f"⚠️ Error al extraer hostname de la URL: {e}")
 
-def enviar_prompt_a_comfyui(server_url, prompt_texto, index_clip, seed=42, width=832, height=480):
+def enviar_prompt_a_comfyui(server_url, prompt_texto, index_clip, seed=42, width=832, height=480, steps=30):
     """
     Construye y envía el JSON del workflow de ComfyUI para generar un clip de video.
     """
@@ -102,7 +102,7 @@ def enviar_prompt_a_comfyui(server_url, prompt_texto, index_clip, seed=42, width
             "inputs": {
                 "positive_prompt": f"Cinematic B-roll, medical video essay style, {prompt_texto}, 4k, hyperrealistic, slow motion.", 
                 "negative_prompt": "blurry, low quality, distorted, bad anatomy, text, watermark, vertical, static, ugly",
-                "device": "cpu",
+                "device": "gpu",
                 "t5": ["3", 0]
             }, 
             "class_type": "WanVideoTextEncode"
@@ -127,7 +127,7 @@ def enviar_prompt_a_comfyui(server_url, prompt_texto, index_clip, seed=42, width
                 "model": ["1", 0], 
                 "image_embeds": ["7", 0], 
                 "text_embeds": ["2", 0], 
-                "steps": 30, 
+                "steps": steps, 
                 "cfg": 6.0, 
                 "shift": 5.0,
                 "seed": seed + index_clip, 

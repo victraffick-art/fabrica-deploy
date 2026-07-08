@@ -1,3 +1,4 @@
+import os
 import base64
 import json
 import requests
@@ -75,16 +76,115 @@ def analizar_miniatura_con_gemini(ruta_imagen, api_key):
         print(f"⚠️ Error al analizar miniatura con Gemini: {e}")
     return None
 
+def remove_black_background(img_pil, threshold=40):
+    """
+    Algoritmo Luma-Keying en Python. Convierte el fondo negro o casi negro
+    en canal alfa transparente, suavizando los bordes (anti-aliasing).
+    """
+    rgba = img_pil.convert("RGBA")
+    datas = rgba.getdata()
+    newData = []
+    for item in datas:
+        # Calcular luminosidad aproximada
+        luma = 0.299 * item[0] + 0.587 * item[1] + 0.114 * item[2]
+        if luma < threshold:
+            # Transparencia total
+            newData.append((0, 0, 0, 0))
+        elif luma < threshold + 40:
+            # Transición suave
+            factor = (luma - threshold) / 40.0
+            alpha = int(255 * factor)
+            newData.append((item[0], item[1], item[2], alpha))
+        else:
+            newData.append(item)
+    rgba.putdata(newData)
+    return rgba
+
+def dibujar_flecha_curva(draw_ctx, p_inicio, p_control, p_fin, color=(220, 0, 0, 255), grosor=20):
+    """
+    Dibuja una flecha curvada (Curva Bézier cuadrática) en PIL con contorno negro.
+    """
+    # Contorno negro grueso
+    grosor_contorno = grosor + 12
+    for dx in range(-6, 7):
+        for dy in range(-6, 7):
+            if dx*dx + dy*dy <= 49:
+                dibujar_arco_bezier(draw_ctx, p_inicio, p_control, p_fin, color=(0, 0, 0, 255), grosor=grosor_contorno)
+                
+    # Flecha roja interna
+    dibujar_arco_bezier(draw_ctx, p_inicio, p_control, p_fin, color=color, grosor=grosor)
+    
+    # Dibujar la punta de la flecha
+    # Calcular ángulo al final de la curva
+    import math
+    dx = p_fin[0] - p_control[0]
+    dy = p_fin[1] - p_control[1]
+    angulo = math.atan2(dy, dx)
+    
+    # Puntos de la cabeza de la flecha
+    largo_cabeza = 45
+    ancho_cabeza = 25
+    
+    p1 = (p_fin[0] - largo_cabeza * math.cos(angulo - 0.4), p_fin[1] - largo_cabeza * math.sin(angulo - 0.4))
+    p2 = (p_fin[0] - largo_cabeza * math.cos(angulo + 0.4), p_fin[1] - largo_cabeza * math.sin(angulo + 0.4))
+    
+    # Dibujar cabeza de flecha (contorno y relleno)
+    for dx_c in range(-6, 7):
+        for dy_c in range(-6, 7):
+            if dx_c*dx_c + dy_c*dy_c <= 49:
+                draw_ctx.polygon([p_fin, (p1[0]+dx_c, p1[1]+dy_c), (p2[0]+dx_c, p2[1]+dy_c)], fill=(0, 0, 0, 255))
+                
+    draw_ctx.polygon([p_fin, p1, p2], fill=color)
+
+def dibujar_arco_bezier(draw_ctx, p0, p1, p2, color, grosor, pasos=40):
+    """
+    Dibuja segmentos continuos simulando una curva Bézier cuadrática.
+    """
+    puntos = []
+    for t_step in range(pasos + 1):
+        t = t_step / pasos
+        # Fórmulas de Bézier cuadrática
+        x = (1-t)**2 * p0[0] + 2*(1-t)*t * p1[0] + t**2 * p2[0]
+        y = (1-t)**2 * p0[1] + 2*(1-t)*t * p1[1] + t**2 * p2[1]
+        puntos.append((x, y))
+        
+    for i in range(len(puntos) - 1):
+        draw_ctx.line([puntos[i], puntos[i+1]], fill=color, width=grosor)
+
+def descargar_doctor_real(ruta_salida):
+    """
+    Descarga una imagen de stock de doctor masculino profesional recortado en PNG transparente nativo
+    para garantizar bordes y colores impecables sin fallas de luma-keying de IA.
+    """
+    urls = [
+        "https://www.pngmart.com/files/22/Male-Doctor-PNG-HD.png",
+        "https://www.pngmart.com/files/22/Doctor-PNG-Transparent.png",
+        "https://www.pngall.com/wp-content/uploads/2018/04/Doctor-PNG-File.png"
+    ]
+    for url in urls:
+        try:
+            print(f"⬇️ Descargando doctor masculino profesional PNG transparente desde: {url}...")
+            res = requests.get(url, timeout=25)
+            if res.status_code == 200 and len(res.content) > 50000:
+                with open(ruta_salida, "wb") as f:
+                    f.write(res.content)
+                print("✅ Doctor masculino profesional descargado y guardado con éxito.")
+                return True
+        except Exception as e:
+            print(f"⚠️ Error descargando doctor desde {url}: {e}")
+    return False
+
 def aplicar_estilo_miniatura(ruta_fondo, ruta_salida, texto_clickbait, color_texto="yellow"):
-    # Wrapper compatible con la API anterior que redirige al render avanzado
+    # Wrapper compatible con la API anterior
     aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_salida, texto_clickbait)
 
-def aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_salida, texto_clickbait, layout_config=None):
+def aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_salida, texto_clickbait, layout_config=None, elemento_clave="", url_runpod=""):
     """
-    Toma una imagen de fondo, le añade texto clickbait imitando diseños de alta conversión.
-    Soporta banners, rotaciones, alineación dinámica y espejo de la imagen de fondo.
+    Toma una imagen de fondo (ej. el ojo), superpone al doctor constante,
+    el elemento clave brillante (glow), la flecha roja curvada, y dibuja
+    los títulos en el lado izquierdo con banners 3D redondeados.
     """
-    print(f"🎨 Componiendo miniatura clickbait avanzada...")
+    print(f"🎨 Componiendo miniatura clickbait avanzada (Fotomontaje)...")
     
     # 1. Cargar fondo y asegurar resolución 1280x720
     if not os.path.exists(ruta_fondo):
@@ -94,49 +194,147 @@ def aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_salida, texto_clickbait, 
         img = Image.open(ruta_fondo).convert("RGB")
         img = img.resize((1280, 720), Image.Resampling.LANCZOS)
         
-    # Configuración de diseño por defecto si no viene del análisis de Gemini
+    # Configuración de diseño por defecto si no viene del análisis de Gemini (Sujeto derecha, Texto izquierda)
     if not layout_config:
         layout_config = {
-            "texto_posicion_x": "right",
-            "texto_alineacion": "right",
+            "texto_posicion_x": "left",
+            "texto_alineacion": "left",
             "color_primario": "yellow",
             "color_secundario": "white",
             "inclinacion_grados": -3,
-            "sujeto_posicion_x": "left",
-            "tiene_banner": False
+            "sujeto_posicion_x": "right",
+            "tiene_banner": True
         }
         
-    # 2. Si el sujeto debe ir a la derecha y el texto a la izquierda, podemos hacer un espejo horizontal
-    # del fondo para evitar que el texto tape la imagen principal generada.
-    if layout_config.get("sujeto_posicion_x") == "right" and layout_config.get("texto_posicion_x") == "left":
-        img = ImageOps.mirror(img)
-        print("🔄 Volteando fondo horizontalmente para optimizar espacio del texto.")
+    # Asegurar que el sujeto vaya a la derecha y el texto a la izquierda como la competencia
+    pos_x = layout_config.get("texto_posicion_x", "left")
+    sujeto_pos_x = layout_config.get("sujeto_posicion_x", "right")
+    
+    # Auto-completar elemento_clave de forma inteligente si viene vacío por metadatos antiguos
+    if not elemento_clave:
+        clickbait_lower = texto_clickbait.lower()
+        if "gafas" in clickbait_lower or "ojos" in clickbait_lower or "visión" in clickbait_lower or "vista" in clickbait_lower or "fruta" in clickbait_lower:
+            elemento_clave = "dried date fruit"
+        elif "ajo" in clickbait_lower:
+            elemento_clave = "garlic bulb"
+        elif "romero" in clickbait_lower:
+            elemento_clave = "rosemary branch"
+        else:
+            elemento_clave = "healthy capsule"
+
+    # 2. RESOLVER Y CARGAR PERSONAJE DOCTOR CONSTANTE (DOCTOR MASCULINO)
+    # Ubicación del archivo de doctor constante
+    ruta_doctor_constante = os.path.join(os.path.dirname(os.path.abspath(__file__)), "doctor_masculino.png")
+    
+    if not os.path.exists(ruta_doctor_constante):
+        print("👤 doctor_masculino.png no existe. Descargando personaje clínico fotorrealista transparente...")
+        # Descargar directamente un doctor fotorrealista real con fondo transparente de stock
+        descargar_doctor_real(ruta_doctor_constante)
+            
+    # Cargar doctor PNG recortado si existe
+    img_doctor = None
+    if os.path.exists(ruta_doctor_constante):
+        try:
+            img_doctor = Image.open(ruta_doctor_constante).convert("RGBA")
+            print("👤 Cargado doctor constante del canal.")
+        except Exception as e:
+            print(f"⚠️ Error al abrir doctor_masculino.png: {e}")
+            
+    # 3. GENERAR Y CARGAR ELEMENTO CLAVE (EJ: DÁTIL, AJO, ROMERO) CON GLOW
+    img_elemento = None
+    if elemento_clave and url_runpod:
+        print(f"🍏 Generando elemento clave '{elemento_clave}' en RunPod...")
+        prompt_elem = f"A single detailed fresh {elemento_clave} fruit, isolated, macro photography, sharp focus, solid pitch black background, photorealistic, 8k"
+        ruta_elem_temp = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"elem_{elemento_clave}.png")
         
-    # 3. Dibujar degradado negro de contraste según la posición del texto
-    overlay_degradado = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    overlay_draw = ImageDraw.Draw(overlay_degradado)
-    pos_x = layout_config.get("texto_posicion_x", "right")
+        import generador
+        exito_elem = generador.generar_fondo_miniatura(url_runpod, prompt_elem, ruta_elem_temp, seed=777)
+        if exito_elem and os.path.exists(ruta_elem_temp):
+            # Recortar fondo del elemento
+            elem_raw = Image.open(ruta_elem_temp)
+            img_elemento = remove_black_background(elem_raw, threshold=40)
+            try:
+                os.remove(ruta_elem_temp)
+            except:
+                pass
+            print(f"🍏 Elemento clave '{elemento_clave}' listo.")
+            
+    # 4. COMPOSICIÓN DE CAPAS (FONDO + DOCTOR + ELEMENTO + GLOW)
+    canvas = Image.new("RGBA", (1280, 720), (0, 0, 0, 0))
+    canvas.paste(img.convert("RGBA"), (0, 0))
     
-    if pos_x == "right":
-        for px in range(600, 1280):
-            alpha = int(((px - 600) / 680) * 190)
-            overlay_draw.line([(px, 0), (px, 720)], fill=(0, 0, 0, alpha))
-    elif pos_x == "left":
-        for px in range(0, 680):
-            alpha = int(((680 - px) / 680) * 190)
-            overlay_draw.line([(px, 0), (px, 720)], fill=(0, 0, 0, alpha))
-    else: # Center / full screen vignette
-        for py in range(720):
-            for px in range(1280):
-                # Distancia al centro para viñeta circular
-                dist = ((px-640)**2 + (py-360)**2)**0.5
-                alpha = min(int((dist / 730) * 160), 160)
-                if alpha > 20:
-                    overlay_degradado.putpixel((px, py), (0, 0, 0, alpha))
-                    
-    img = Image.alpha_composite(img.convert("RGBA"), overlay_degradado).convert("RGB")
-    
-    # 4. Configurar fuentes
+    # Dibujar aura brillante (Glow) detrás del elemento
+    if img_doctor and sujeto_pos_x == "right":
+        # Posicionar doctor a la derecha (redimensionado proporcional a 720px de alto)
+        # Ancho estimado proporcional: aprox 500-600px
+        orig_w, orig_h = img_doctor.size
+        new_h = 720
+        new_w = int(orig_w * (new_h / orig_h))
+        img_doctor_res = img_doctor.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        
+        # Coordenada del doctor a la derecha
+        doc_x = 1280 - new_w + 100 # Leve offset hacia afuera
+        doc_y = 0
+        
+        # Si hay dátil/elemento, colocarlo flotando en frente o en la mano
+        if img_elemento:
+            # Redimensionar elemento clave a aprox 200x200px
+            img_elemento_res = img_elemento.resize((190, 190), Image.Resampling.LANCZOS)
+            
+            # Posicionamiento del dátil delante del doctor (mano estimada)
+            elem_x = doc_x + 100
+            elem_y = 300
+            
+            # Dibujar el aura brillante (Glow radial dorado) en el canvas transparente
+            glow_radius = 240
+            glow_layer = Image.new("RGBA", (glow_radius, glow_radius), (0, 0, 0, 0))
+            g_draw = ImageDraw.Draw(glow_layer)
+            for r in range(glow_radius, 0, -6):
+                # Degradado de amarillo a transparente
+                alpha = int(((glow_radius - r) / glow_radius) * 110)
+                g_draw.ellipse(
+                    [(glow_radius//2 - r//2, glow_radius//2 - r//2), (glow_radius//2 + r//2, glow_radius//2 + r//2)],
+                    fill=(255, 170, 0, alpha)
+                )
+            # Pegar el glow centrado en el elemento
+            canvas.paste(glow_layer, (elem_x + 95 - glow_radius//2, elem_y + 95 - glow_radius//2), glow_layer)
+            
+            # Pegar el doctor en el canvas
+            canvas.paste(img_doctor_res, (doc_x, doc_y), img_doctor_res)
+            # Pegar el dátil encima del doctor
+            canvas.paste(img_elemento_res, (elem_x, elem_y), img_elemento_res)
+        else:
+            # Solo pegar al doctor si no hay elemento clave
+            canvas.paste(img_doctor_res, (doc_x, doc_y), img_doctor_res)
+    else:
+        # Fallback si no hay doctor: pegar elemento grande en el centro derecho
+        if img_elemento:
+            img_elemento_res = img_elemento.resize((350, 350), Image.Resampling.LANCZOS)
+            elem_x = 800
+            elem_y = 180
+            
+            glow_radius = 450
+            glow_layer = Image.new("RGBA", (glow_radius, glow_radius), (0, 0, 0, 0))
+            g_draw = ImageDraw.Draw(glow_layer)
+            for r in range(glow_radius, 0, -8):
+                alpha = int(((glow_radius - r) / glow_radius) * 120)
+                g_draw.ellipse(
+                    [(glow_radius//2 - r//2, glow_radius//2 - r//2), (glow_radius//2 + r//2, glow_radius//2 + r//2)],
+                    fill=(255, 170, 0, alpha)
+                )
+            canvas.paste(glow_layer, (elem_x + 175 - glow_radius//2, elem_y + 175 - glow_radius//2), glow_layer)
+            canvas.paste(img_elemento_res, (elem_x, elem_y), img_elemento_res)
+            
+    # 5. DIBUJAR LA FLECHA ROJA CURVA CONECTORA
+    # La flecha apunta de la zona del texto (izquierda: x=500, y=180) hacia el elemento brillante (derecha: x=880, y=360)
+    canvas_draw = ImageDraw.Draw(canvas)
+    if img_doctor and img_elemento and sujeto_pos_x == "right":
+        p_ini = (490, 180)
+        p_ctrl = (690, 210)
+        p_fn = (doc_x + 120, 310)
+        dibujar_flecha_curva(canvas_draw, p_ini, p_ctrl, p_fn, color=(230, 0, 0, 255), grosor=16)
+        
+    # 6. CONFIGURAR FUENTES IMPACT
     rutas_fuentes = [
         "C:/Windows/Fonts/impact.ttf",
         "C:/Windows/Fonts/arialbd.ttf",
@@ -149,26 +347,26 @@ def aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_salida, texto_clickbait, 
             fuente_path = path
             break
             
-    font_size = 90
+    font_size = 92
     if len(texto_clickbait) > 22:
-        font_size = 75
+        font_size = 78
         
     if fuente_path:
         font = ImageFont.truetype(fuente_path, font_size)
     else:
         font = ImageFont.load_default()
         
-    # 5. Wrapping inteligente
-    max_width = 520
+    # 7. WRAPPING INTELIGENTE DEL TEXTO
+    # Max width de 550px para texto en la izquierda
+    max_width = 580
     palabras = texto_clickbait.upper().split()
     lineas = []
     linea_actual = []
-    test_draw = ImageDraw.Draw(img)
     
     for palabra in palabras:
         linea_actual.append(palabra)
         test_linea = " ".join(linea_actual)
-        if test_draw.textlength(test_linea, font=font) <= max_width:
+        if canvas_draw.textlength(test_linea, font=font) <= max_width:
             pass
         else:
             if len(linea_actual) > 1:
@@ -181,19 +379,19 @@ def aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_salida, texto_clickbait, 
     if linea_actual:
         lineas.append(" ".join(linea_actual))
         
-    # 6. Crear un lienzo transparente separado para dibujar el texto con rotación/banner
+    # 8. DIBUJAR BANNERS 3D REDONDEADOS Y TEXTOS GIGANTES EN LIENZO TRANSAPRENTE
     texto_layer = Image.new("RGBA", (1280, 720), (0, 0, 0, 0))
     t_draw = ImageDraw.Draw(texto_layer)
     
-    # Coordenadas X iniciales según posición
-    if pos_x == "right":
-        txt_x = 730
-    elif pos_x == "left":
-        txt_x = 80
+    # Posicionar texto a la izquierda
+    if pos_x == "left":
+        txt_x = 55
+    elif pos_x == "right":
+        txt_x = 680
     else:
-        txt_x = 380 # Centro aproximado
+        txt_x = 350
         
-    line_height = font_size + 15
+    line_height = font_size + 24
     total_height = len(lineas) * line_height
     txt_y_start = (720 - total_height) // 2
     
@@ -201,7 +399,7 @@ def aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_salida, texto_clickbait, 
         "yellow": (255, 235, 59, 255),
         "red": (244, 67, 54, 255),
         "white": (255, 255, 255, 255),
-        "green": (76, 175, 80, 255)
+        "green": (57, 255, 20, 255) # Verde neón brillante
     }
     
     c_primario = layout_config.get("color_primario", "yellow").lower()
@@ -213,23 +411,43 @@ def aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_salida, texto_clickbait, 
         txt_y = txt_y_start + (i * line_height)
         col_actual = col_p if i % 2 == 0 else col_s
         
-        # Calcular el tamaño exacto de esta línea de texto
         bbox = t_draw.textbbox((txt_x, txt_y), linea, font=font)
         lw = bbox[2] - bbox[0]
         lh = bbox[3] - bbox[1]
         
-        # Dibujar banner detrás de la línea
+        # Dibujar Banner 3D con bordes redondeados
         if layout_config.get("tiene_banner"):
-            # Rectángulo con un leve padding
-            padding_w = 25
-            padding_h = 10
-            t_draw.rectangle(
-                [txt_x - padding_w, txt_y - padding_h, txt_x + lw + padding_w, txt_y + lh + padding_h * 2],
-                fill=(180, 0, 0, 230) if i % 2 == 0 else (0, 0, 0, 230)
+            pad_w = 32
+            pad_h = 16
+            rx = 15 # Radio de redondeado
+            
+            # Capa 1: Sombra negra desplazada
+            offset = 8
+            t_draw.rounded_rectangle(
+                [txt_x - pad_w + offset, txt_y - pad_h + offset, txt_x + lw + pad_w + offset, txt_y + lh + pad_h * 2 + offset],
+                radius=rx,
+                fill=(0, 0, 0, 180)
             )
             
-        # Dibujar contorno del texto (outline)
-        grosor = 8
+            # Capa 2: Banner principal rojo o negro con degradado
+            banner_color = (200, 0, 0, 255) if i % 2 == 0 else (15, 23, 42, 255)
+            t_draw.rounded_rectangle(
+                [txt_x - pad_w, txt_y - pad_h, txt_x + lw + pad_w, txt_y + lh + pad_h * 2],
+                radius=rx,
+                fill=banner_color
+            )
+            
+            # Capa 3: Brillo de contorno superior fino (efecto relieve)
+            contorno_color = (255, 100, 100, 255) if i % 2 == 0 else (70, 85, 105, 255)
+            t_draw.rounded_rectangle(
+                [txt_x - pad_w, txt_y - pad_h, txt_x + lw + pad_w, txt_y + lh + pad_h * 2],
+                radius=rx,
+                outline=contorno_color,
+                width=3
+            )
+            
+        # Dibujar contorno grueso del texto (outline) para celulares
+        grosor = 9
         for dx in range(-grosor, grosor + 1):
             for dy in range(-grosor, grosor + 1):
                 if dx*dx + dy*dy <= grosor*grosor:
@@ -238,21 +456,19 @@ def aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_salida, texto_clickbait, 
         # Dibujar texto principal
         t_draw.text((txt_x, txt_y), linea, font=font, fill=col_actual)
         
-    # 7. Aplicar rotación/inclinación al lienzo de texto si es requerido
+    # 9. Aplicar rotación/inclinación al lienzo de texto si es requerido
     grados = layout_config.get("inclinacion_grados", 0)
     if grados != 0:
-        # Rotar la capa transparente del texto usando interpolación bicúbica
         texto_layer = texto_layer.rotate(grados, resample=Image.Resampling.BICUBIC, center=(640, 360))
         
-    # 8. Fusionar la capa de texto rotada sobre el fondo principal
-    img_final = Image.alpha_composite(img.convert("RGBA"), texto_layer).convert("RGB")
+    # 10. FUSIONAR Y GUARDAR
+    img_final = Image.alpha_composite(canvas, texto_layer).convert("RGB")
     
-    # 9. Guardar la imagen compuesta
     dir_salida = os.path.dirname(ruta_salida)
     if dir_salida:
         os.makedirs(dir_salida, exist_ok=True)
     img_final.save(ruta_salida, "PNG")
-    print(f"✅ Miniatura clickbait terminada y guardada en: {ruta_salida}")
+    print(f"✅ Fotomontaje de miniatura clickbait terminado en: {ruta_salida}")
 
 if __name__ == "__main__":
     aplicar_estilo_miniatura_avanzado("fondo_prueba.png", "miniatura_prueba.png", "AJO EN AYUNAS: ¡EXPLOTA TU SALUD!")

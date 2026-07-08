@@ -49,6 +49,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Middleware para forzar la recarga limpia en el navegador (evitar caché de Chrome en localhost)
+@app.middleware("http")
+async def add_no_cache_headers(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.endswith((".html", ".js", ".css")) or path == "/":
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 # Servir la carpeta de outputs estáticamente para que el frontend pueda reproducir videos e imágenes
 outputs_dir = os.path.join(directorio_actual, "outputs")
 os.makedirs(outputs_dir, exist_ok=True)
@@ -80,6 +91,9 @@ class RedactarRequest(BaseModel):
     tema: str
     duracion_min: float = 1.0
     clonar_idiomas: Optional[List[str]] = None  # ["en", "pt"]
+    estructura: str = "Mitos Desmentidos"
+    intro_pers: str = ""
+    cierre_pers: str = ""
 
 class ProducirRequest(BaseModel):
     tema: str
@@ -96,11 +110,19 @@ class ProducirRequest(BaseModel):
     sub_color_fondo: str = "white"
     sub_animacion: str = "karaoke"
     
-    # Nuevas mejoras de audio y clonación
+    # Nuevas mejoras de audio, subtítulos y clonación
     tono_voz: str = "+0Hz"
     velocidad_voz: str = "+0%"
     volumen_musica: float = 0.12
     clonar_idiomas: Optional[List[str]] = None  # ["en", "pt"]
+    
+    # Parámetros avanzados de subtítulos y calidad
+    sub_size: int = 64
+    sub_outline: int = 3
+    sub_align: str = "Centrado (Abajo)"
+    sub_max_words: str = "3 palabras"
+    sub_margin_v: int = 150
+    video_quality: str = "Equilibrado"
 
 def registrar_log(mensaje: str):
     print(f"[API Log] {mensaje}")
@@ -152,8 +174,8 @@ def get_config():
     if not pod_id:
         pod_id = os.environ.get("RUNPOD_POD_ID")
             
-    # Intentar buscar dinámicamente el pod activo usando la API Key de RunPod
-    if api_key:
+    # Intentar buscar dinámicamente el pod activo usando la API Key de RunPod sólo si no hay un pod_id configurado
+    if api_key and not pod_id:
         pod_id_dinamico = obtener_pod_id_activo_desde_api(api_key)
         if pod_id_dinamico:
             pod_id = pod_id_dinamico
@@ -174,6 +196,175 @@ def clear_status():
     estado_proceso["mensajes"] = []
     estado_proceso["datos_video"] = None
     return {"status": "ok"}
+
+class NichoBuscarRequest(BaseModel):
+    query: str
+    fecha: str = "Última semana"
+    orden: str = "Vistas"
+    limite: int = 10
+    idioma: str = "any"
+    duracion: str = "any"
+
+@app.post("/api/nicho/buscar")
+def api_buscar_nicho(req: NichoBuscarRequest):
+    query = req.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Por favor ingresa un término de búsqueda.")
+        
+    # Importar utilidades de fabrica_videos
+    from fabrica_videos import get_published_after, parse_iso8601_duration, estimate_earnings
+    import requests as req_http
+    import html as html_parser
+    from datetime import datetime
+    
+    order_map = {
+        "Vistas": "viewCount",
+        "Relevancia": "relevance",
+        "Fecha": "date"
+    }
+    order_param = order_map.get(req.orden, "viewCount")
+    
+    params = {
+        "part": "snippet",
+        "q": query,
+        "type": "video",
+        "maxResults": min(max(req.limite, 5), 50), # Límite seguro entre 5 y 50
+        "key": YT_KEY,
+        "order": order_param
+    }
+    
+    if req.idioma != "any":
+        params["relevanceLanguage"] = req.idioma
+    if req.duracion != "any":
+        params["videoDuration"] = req.duracion
+    
+    published_after = get_published_after(req.fecha)
+    if published_after:
+        params["publishedAfter"] = published_after
+        
+    try:
+        # 1. Búsqueda de videos
+        search_url = "https://www.googleapis.com/youtube/v3/search"
+        res = req_http.get(search_url, params=params, timeout=10).json()
+        
+        if "error" in res:
+            raise HTTPException(status_code=500, detail=f"Error API YouTube: {res['error']['message']}")
+            
+        items = res.get("items", [])
+        if not items:
+            return {"videos": []}
+            
+        video_ids = []
+        channel_ids = []
+        video_snippets = {}
+        
+        for item in items:
+            v_id = item["id"].get("videoId")
+            if not v_id:
+                continue
+            video_ids.append(v_id)
+            c_id = item["snippet"]["channelId"]
+            channel_ids.append(c_id)
+            video_snippets[v_id] = {
+                "id": v_id,
+                "title": html_parser.unescape(item["snippet"]["title"]),
+                "channelId": c_id,
+                "channelTitle": item["snippet"]["channelTitle"],
+                "publishedAt": item["snippet"]["publishedAt"],
+                "thumbnail_url": item["snippet"]["thumbnails"]["medium"]["url"]
+            }
+            
+        if not video_ids:
+            return {"videos": []}
+            
+        # 2. Consultar estadísticas de videos (vistas y duración)
+        videos_url = "https://www.googleapis.com/youtube/v3/videos"
+        v_params = {
+            "part": "statistics,contentDetails",
+            "id": ",".join(video_ids),
+            "key": YT_KEY
+        }
+        v_res = req_http.get(videos_url, params=v_params, timeout=10).json()
+        
+        for v_item in v_res.get("items", []):
+            v_id = v_item["id"]
+            if v_id in video_snippets:
+                video_snippets[v_id]["views"] = int(v_item["statistics"].get("viewCount", 0))
+                video_snippets[v_id]["likes"] = int(v_item["statistics"].get("likeCount", 0))
+                video_snippets[v_id]["duration_raw"] = v_item["contentDetails"].get("duration", "")
+                
+        # 3. Consultar estadísticas de canales (suscriptores y fecha de creación)
+        channels_url = "https://www.googleapis.com/youtube/v3/channels"
+        c_params = {
+            "part": "statistics,snippet",
+            "id": ",".join(list(set(channel_ids))),
+            "key": YT_KEY
+        }
+        c_res = req_http.get(channels_url, params=c_params, timeout=10).json()
+        
+        channel_data = {}
+        for c_item in c_res.get("items", []):
+            c_id = c_item["id"]
+            sub_count = int(c_item["statistics"].get("subscriberCount", 0))
+            created_at = c_item["snippet"].get("publishedAt", "")
+            if created_at:
+                try:
+                    dt = datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ")
+                    created_fmt = dt.strftime("%d/%m/%Y")
+                except:
+                    created_fmt = created_at[:10]
+            else:
+                created_fmt = "Desconocida"
+                
+            channel_data[c_id] = {
+                "subscribers": sub_count,
+                "created_at": created_fmt
+            }
+            
+        # Combinar datos y calcular métricas
+        lista_final_videos = []
+        for v_id, v_data in video_snippets.items():
+            c_id = v_data["channelId"]
+            c_info = channel_data.get(c_id, {"subscribers": 0, "created_at": "Desconocida"})
+            v_data["subscribers"] = c_info["subscribers"]
+            v_data["subscribers_formatted"] = formatear_numero(c_info["subscribers"])
+            v_data["channel_created_at"] = c_info["created_at"]
+            
+            # Duración
+            duration_sec, duration_fmt = parse_iso8601_duration(v_data.get("duration_raw", ""))
+            v_data["duration_seconds"] = duration_sec
+            v_data["duration_fmt"] = duration_fmt
+            
+            # Outlier Ratio
+            views = v_data.get("views", 0)
+            subs = v_data.get("subscribers", 0)
+            if subs > 0:
+                outlier_ratio = (views / subs) * 100.0
+            else:
+                outlier_ratio = 0.0
+            v_data["outlier_ratio"] = outlier_ratio
+            
+            # Ganancias
+            min_earn, max_earn, rpm_avg = estimate_earnings(views, duration_sec)
+            v_data["earnings_min"] = min_earn
+            v_data["earnings_max"] = max_earn
+            v_data["rpm_avg"] = rpm_avg
+            
+            # Formatear vistas y likes
+            v_data["views_formatted"] = formatear_numero(views)
+            v_data["likes_formatted"] = formatear_numero(v_data.get("likes", 0))
+            
+            # Formatear fecha
+            v_data["published_formatted"] = formatear_fecha(v_data["publishedAt"])
+            
+            lista_final_videos.append(v_data)
+            
+        # Ordenar por vistas descendente
+        lista_final_videos.sort(key=lambda x: x.get("views", 0), reverse=True)
+        return {"videos": lista_final_videos}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al buscar videos: {str(e)}")
 
 def formatear_numero(num_str):
     try:
@@ -415,11 +606,43 @@ def api_redactar(req: RedactarRequest):
     dir_salida = os.path.join(outputs_dir, safe_name)
     os.makedirs(dir_salida, exist_ok=True)
     
+    estructura_instruccion = ""
+    if req.estructura == "Neuro-Misterio":
+        estructura_instruccion = (
+            "Aplica una estructura de NEURO-MISTERIO:\n"
+            "- Gancho inicial polémico o aterrador de 5 segundos.\n"
+            "- Desarrollo fundamentado en la biología celular/química del ingrediente (datos duros explicados de forma simple).\n"
+            "- Cierre con un protocolo de acción muy específico (cómo y cuándo consumirlo)."
+        )
+    elif req.estructura == "Storytelling":
+        estructura_instruccion = (
+            "Aplica una estructura de STORYTELLING:\n"
+            "- Comienza con el caso real de una persona/paciente (ej: 'A los 45 años, Carlos sentía...').\n"
+            "- Presenta el conflicto médico o síntoma.\n"
+            "- Describe la revelación del ingrediente natural y su proceso de recuperación biológico."
+        )
+    else:
+        estructura_instruccion = (
+            "Aplica una estructura de MITOS DESMENTIDOS:\n"
+            "- Comienza con una denuncia de un mito común en la salud (ej: 'Te han mentido sobre...').\n"
+            "- Explica por qué es biológicamente falso.\n"
+            "- Presenta la alternativa real y saludable respaldada por ciencia."
+        )
+
+    personalizacion_instrucciones = ""
+    if req.intro_pers:
+        personalizacion_instrucciones += f"\n- En la introducción (después del gancho inicial), debes integrar explícitamente y de manera persuasiva con tus propias palabras la siguiente personalización: '{req.intro_pers}'."
+    if req.cierre_pers:
+        personalizacion_instrucciones += f"\n- En el cierre del video, debes integrar el siguiente llamado a la acción (CTA) personalizado de forma fluida: '{req.cierre_pers}'."
+
     prompt_solicitud = (
         f"Actúa como un copywriter estrella de YouTube especializado en salud y neuro-marketing. "
         f"Basado en el tema '{tema}', debes retornar un objeto JSON estrictamente bajo la estructura provista. "
         f"El guion debe ser completo, adaptado para la narración, y tener exactamente unas {palabras_objetivo} palabras de longitud "
         f"(aproximadamente {duracion} minuto(s) de video a una velocidad de habla normal). No añadas marcas de tiempo en el guion.\n\n"
+        f"INSTRUCCIONES DE ESTRUCTURA:\n"
+        f"{estructura_instruccion}\n"
+        f"{personalizacion_instrucciones}\n\n"
         f"ESTRUCTURA DEL JSON REQUERIDA:\n"
         f"{{\n"
         f'  "titulos": ["Título Clickbait 1", "Título Clickbait 2", "Título Clickbait 3"],\n'
@@ -427,7 +650,8 @@ def api_redactar(req: RedactarRequest):
         f'  "tags": ["salud", "bienestar", "nutricion", "otros_tags_relacionados"],\n'
         f'  "texto_miniatura": "3 o 4 palabras impactantes (ej: ¡EVITA ESTE ALIMENTO!)",\n'
         f'  "titulos_miniatura": ["Texto Corto 1", "Texto Corto 2", "Texto Corto 3"],\n'
-        f'  "prompt_miniatura": "Prompt en inglés para generar fondo de miniatura en ComfyUI, enfocado en el elemento médico principal",\n'
+        f'  "elemento_clave": "Nombre simple en inglés del ingrediente o elemento natural principal (ej: garlic, rosemary, date, apple, olive oil) para el fotomontaje",\n'
+        f'  "prompt_miniatura": "Prompt en inglés muy detallado para generar UNICAMENTE la ilustración o foto de fondo macro. Debe enfocarse en el elemento u organo (ej: a giant human eye with glowing lens, or a close-up of a diseased liver, or a macro view of cells), cinematic lighting, dark background, ultra high detail, photorealistic, 8k. IMPORTANTE: No incluyas doctores, ni personas, ni textos en este prompt, ya que el sistema los recortara y pegara después.",\n'
         f'  "guion_locucion": "Texto completo y corrido que leerá el narrador sin anotaciones entre corchetes o paréntesis...",\n'
         f'  "escenas": [\n'
         f'     {{\n'
@@ -556,6 +780,13 @@ def api_regenerar_miniatura(req: RegenerarMiniaturaRequest):
         
     prompt_img = datos_video["prompt_miniatura"]
     texto_click = datos_video["texto_miniatura"]
+    # Parche de retrocompatibilidad: Evitar doctores/personas en el fondo y forzar fondos de primer plano clínico
+    clickbait_lower = texto_click.lower()
+    if "gafas" in clickbait_lower or "ojos" in clickbait_lower or "visión" in clickbait_lower or "vista" in clickbait_lower:
+        prompt_img = "Macro close-up photography of a giant human eye with a glowing detailed iris and red veins, clinical dark background, high contrast, cinematic light, 8k, photorealistic"
+    elif "doctor" in prompt_img.lower() or "physician" in prompt_img.lower() or "person" in prompt_img.lower():
+        prompt_img = f"Macro close-up photorealistic illustration of the main health element, clinical dark background, high contrast, cinematic lighting, 8k"
+        
     ruta_fondo = os.path.join(dir_salida, "fondo_minia.png")
     
     url_runpod_interna = req.url_runpod.strip().strip("/")
@@ -587,41 +818,43 @@ def api_regenerar_miniatura(req: RegenerarMiniaturaRequest):
             registrar_log("🧠 Re-analizando miniatura competidora...")
             layout_config = miniaturizador.analizar_miniatura_con_gemini(ruta_comp, API_KEY)
             
+    elem_clave = datos_video.get("elemento_clave", "")
+    
     layout_opcion1 = layout_config if layout_config else {
-        "texto_posicion_x": "right",
-        "texto_alineacion": "right",
+        "texto_posicion_x": "left",
+        "texto_alineacion": "left",
         "color_primario": "yellow",
         "color_secundario": "white",
         "inclinacion_grados": -3,
-        "sujeto_posicion_x": "left",
-        "tiene_banner": False
+        "sujeto_posicion_x": "right",
+        "tiene_banner": True
     }
     ruta_opc1 = os.path.join(dir_salida, "miniatura_opcion1.png")
-    miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc1, texto_click, layout_opcion1)
+    miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc1, texto_click, layout_opcion1, elem_clave, url_runpod_interna)
     
     layout_opcion2 = {
-        "texto_posicion_x": "right",
-        "texto_alineacion": "right",
+        "texto_posicion_x": "left",
+        "texto_alineacion": "left",
         "color_primario": "white",
         "color_secundario": "yellow",
-        "inclinacion_grados": 5,
-        "sujeto_posicion_x": "left",
+        "inclinacion_grados": 3,
+        "sujeto_posicion_x": "right",
         "tiene_banner": True
     }
     ruta_opc2 = os.path.join(dir_salida, "miniatura_opcion2.png")
-    miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc2, texto_click, layout_opcion2)
+    miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc2, texto_click, layout_opcion2, elem_clave, url_runpod_interna)
     
     layout_opcion3 = {
         "texto_posicion_x": "left",
         "texto_alineacion": "left",
-        "color_primario": "white",
-        "color_secundario": "green",
+        "color_primario": "green",
+        "color_secundario": "white",
         "inclinacion_grados": 0,
         "sujeto_posicion_x": "right",
         "tiene_banner": False
     }
     ruta_opc3 = os.path.join(dir_salida, "miniatura_opcion3.png")
-    miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc3, texto_click, layout_opcion3)
+    miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc3, texto_click, layout_opcion3, elem_clave, url_runpod_interna)
     
     # También clonar si ya estaban en otros idiomas
     for lang in ["en", "pt"]:
@@ -632,7 +865,9 @@ def api_regenerar_miniatura(req: RegenerarMiniaturaRequest):
             texto_click_lang = datos_lang.get("texto_miniatura", "")
             ruta_minia_lang = os.path.join(dir_salida, f"miniatura_final_{lang}.png")
             registrar_log(f"🖼️ Regenerando miniatura para clonación ({lang.upper()})...")
-            miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_minia_lang, texto_click_lang, layout_opcion1)
+            # Extraer elemento clave del idioma correspondiente o usar el principal
+            elem_clave_lang = datos_lang.get("elemento_clave", elem_clave)
+            miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_minia_lang, texto_click_lang, layout_opcion1, elem_clave_lang, url_runpod_interna)
             
     registrar_log("✅ Regeneración de miniaturas completada con éxito.")
     return {"status": "ok", "directorio_salida": dir_salida}
@@ -668,6 +903,23 @@ def proceso_background_producir(req: ProducirRequest):
         ruta_srt = os.path.join(dir_salida, "subtitulos.srt")
         ruta_ass = os.path.join(dir_salida, "subtitulos.ass")
         
+        # Mapear palabras por pantalla
+        max_words_map = {
+            "2 palabras": 2,
+            "3 palabras": 3,
+            "4 palabras": 4,
+            "Línea completa": 999
+        }
+        max_words_val = max_words_map.get(req.sub_max_words, 3)
+
+        # Mapear alineación (1=izquierda, 2=centrado, 3=derecha)
+        align_map = {
+            "Centrado (Abajo)": 2,
+            "Izquierda (Abajo)": 1,
+            "Derecha (Abajo)": 3
+        }
+        align_val = align_map.get(req.sub_align, 2)
+
         # Ejecutar edge_tts
         loop.run_until_complete(
             locutor.generar_audio_y_subtitulos(
@@ -682,7 +934,12 @@ def proceso_background_producir(req: ProducirRequest):
                 secondary_color=req.sub_color_fondo,
                 effect_type=req.sub_animacion,
                 rate=req.velocidad_voz,
-                pitch=req.tono_voz
+                pitch=req.tono_voz,
+                max_words_per_line=max_words_val,
+                font_size=req.sub_size,
+                outline_thickness=req.sub_outline,
+                alignment=align_val,
+                margin_v=req.sub_margin_v
             )
         )
         registrar_log("✅ Locución y subtítulos sincronizados exitosamente con tu estilo personalizado (Karaoke ASS).")
@@ -715,9 +972,26 @@ def proceso_background_producir(req: ProducirRequest):
                 url_runpod_interna = "http://127.0.0.1:8188"
                 registrar_log("ℹ️ Entorno en la nube detectado. Redirigiendo llamadas internas de ComfyUI a 127.0.0.1:8188 para mayor velocidad.")
         
-        # Dimensiones según la orientación
-        width = 480 if req.orientacion == "vertical" else 832
-        height = 832 if req.orientacion == "vertical" else 480
+        # Mapeo de resolución y pasos según calidad
+        if req.video_quality == "Rápido":
+            pasos = 15
+            if req.orientacion == "vertical":
+                width, height = 320, 576
+            else:
+                width, height = 576, 320
+        elif req.video_quality == "Equilibrado":
+            pasos = 20
+            if req.orientacion == "vertical":
+                width, height = 416, 720
+            else:
+                width, height = 720, 416
+        else:  # Alta Calidad
+            pasos = 30
+            if req.orientacion == "vertical":
+                width, height = 480, 832
+            else:
+                width, height = 832, 480
+        registrar_log(f"🎬 Calidad seleccionada: {req.video_quality} -> Resolucion: {width}x{height}, Pasos: {pasos}")
         
         escenas = datos_video["escenas"]
         prompts_ids = []
@@ -753,9 +1027,22 @@ def proceso_background_producir(req: ProducirRequest):
             return
         
         # Encolar en ComfyUI
+        # Monitorear y preparar directorio de clips
+        ruta_clips = os.path.join(dir_salida, "clips")
+        os.makedirs(ruta_clips, exist_ok=True)
+        
+        # Encolar en ComfyUI (con salto inteligente de cache)
         for idx, escena in enumerate(escenas):
             prompt_broll = escena["prompt_broll"]
             prompt_modificado = formato_prompt.format(prompt_broll)
+            
+            ruta_clip = os.path.join(ruta_clips, f"clip_{idx+1:03d}.mp4")
+            
+            # Si el clip ya existe localmente, lo marcamos como 'cached' y lo saltamos
+            if os.path.exists(ruta_clip) and os.path.getsize(ruta_clip) > 10000:
+                registrar_log(f"✅ Clip {idx+1:03d} ya existe localmente. Saltando generación en RunPod...")
+                prompts_ids.append((idx+1, "cached"))
+                continue
             
             registrar_log(f"⏳ Encolando Escena {idx+1}/{len(escenas)} en RunPod...")
             
@@ -766,7 +1053,8 @@ def proceso_background_producir(req: ProducirRequest):
                 index_clip=idx+1,
                 seed=42,
                 width=width,
-                height=height
+                height=height,
+                steps=pasos
             )
             if prompt_id:
                 prompts_ids.append((idx+1, prompt_id))
@@ -782,13 +1070,18 @@ def proceso_background_producir(req: ProducirRequest):
             estado_proceso["ocupado"] = False
             return
             
-        # Monitorear y descargar clips
-        ruta_clips = os.path.join(dir_salida, "clips")
-        os.makedirs(ruta_clips, exist_ok=True)
         clips_descargados = 0
         
         for index, prompt_id in prompts_ids:
             ruta_clip = os.path.join(ruta_clips, f"clip_{index:03d}.mp4")
+            
+            if prompt_id == "cached":
+                clips_descargados += 1
+                progreso_parcial = 40 + int((clips_descargados / len(prompts_ids)) * 30)
+                estado_proceso["progreso"] = progreso_parcial
+                registrar_log(f"🎉 Clip {index:03d} (Caché local) cargado correctamente.")
+                continue
+                
             registrar_log(f"⏳ Procesando Clip {index:03d}/{len(prompts_ids)} en GPU de RunPod...")
             
             exito = generador.esperar_y_descargar(url_runpod_interna, prompt_id, ruta_clip)
@@ -809,6 +1102,12 @@ def proceso_background_producir(req: ProducirRequest):
         
         prompt_img = datos_video["prompt_miniatura"]
         texto_click = datos_video["texto_miniatura"]
+        # Parche de retrocompatibilidad: Evitar doctores/personas en el fondo y forzar fondos de primer plano clínico
+        clickbait_lower = texto_click.lower()
+        if "gafas" in clickbait_lower or "ojos" in clickbait_lower or "visión" in clickbait_lower or "vista" in clickbait_lower:
+            prompt_img = "Macro close-up photography of a giant human eye with a glowing detailed iris and red veins, clinical dark background, high contrast, cinematic light, 8k, photorealistic"
+        elif "doctor" in prompt_img.lower() or "physician" in prompt_img.lower() or "person" in prompt_img.lower():
+            prompt_img = f"Macro close-up photorealistic illustration of the main health element, clinical dark background, high contrast, cinematic lighting, 8k"
         ruta_fondo = os.path.join(dir_salida, "fondo_minia.png")
         ruta_minia = os.path.join(dir_salida, "miniatura_final.png")
         
@@ -834,31 +1133,33 @@ def proceso_background_producir(req: ProducirRequest):
         # Componer las 3 opciones de miniatura clickbait para que el usuario elija
         registrar_log("🖼️ Generando 3 opciones de diseño de miniaturas clickbait...")
         
+        elem_clave = datos_video.get("elemento_clave", "")
+        
         # Opción 1: Diseño de la Competencia (o Clásico Médico si no hay competidor)
         layout_opcion1 = layout_config if layout_config else {
-            "texto_posicion_x": "right",
-            "texto_alineacion": "right",
+            "texto_posicion_x": "left",
+            "texto_alineacion": "left",
             "color_primario": "yellow",
             "color_secundario": "white",
             "inclinacion_grados": -3,
-            "sujeto_posicion_x": "left",
-            "tiene_banner": False
+            "sujeto_posicion_x": "right",
+            "tiene_banner": True
         }
         ruta_opc1 = os.path.join(dir_salida, "miniatura_opcion1.png")
-        miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc1, texto_click, layout_opcion1)
+        miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc1, texto_click, layout_opcion1, elem_clave, url_runpod_interna)
         
         # Opción 2: Alerta Roja (Con Banner Diagonal Llamativo)
         layout_opcion2 = {
-            "texto_posicion_x": "right",
-            "texto_alineacion": "right",
+            "texto_posicion_x": "left",
+            "texto_alineacion": "left",
             "color_primario": "white",
             "color_secundario": "yellow",
-            "inclinacion_grados": 5,
-            "sujeto_posicion_x": "left",
+            "inclinacion_grados": 3,
+            "sujeto_posicion_x": "right",
             "tiene_banner": True
         }
         ruta_opc2 = os.path.join(dir_salida, "miniatura_opcion2.png")
-        miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc2, texto_click, layout_opcion2)
+        miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc2, texto_click, layout_opcion2, elem_clave, url_runpod_interna)
         
         # Opción 3: Espejo Limpio (Sujeto a la derecha, texto verde/blanco a la izquierda)
         layout_opcion3 = {
@@ -866,12 +1167,12 @@ def proceso_background_producir(req: ProducirRequest):
             "texto_alineacion": "left",
             "color_primario": "green",
             "color_secundario": "white",
-            "inclinacion_grados": -2,
+            "inclinacion_grados": 0,
             "sujeto_posicion_x": "right",
             "tiene_banner": False
         }
         ruta_opc3 = os.path.join(dir_salida, "miniatura_opcion3.png")
-        miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc3, texto_click, layout_opcion3)
+        miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc3, texto_click, layout_opcion3, elem_clave, url_runpod_interna)
         
         # Guardar la Opción 1 como la miniatura principal del video
         shutil.copyfile(ruta_opc1, ruta_minia)
