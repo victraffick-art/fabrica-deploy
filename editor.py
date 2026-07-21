@@ -69,11 +69,12 @@ def ensamblar_video(ruta_audio, ruta_srt, ruta_clips, ruta_musica, ruta_salida, 
         clips.sort()
         
     # Quirk de FFmpeg en Windows para libass
-    if ":" in ruta_srt_abs:
-        drive, path = ruta_srt_abs.split(":", 1)
-        srt_escapado = f"{drive}\\:{path}"
+    ruta_clean = ruta_srt_abs.replace("\\", "/")
+    if ":" in ruta_clean:
+        drive, path = ruta_clean.split(":", 1)
+        srt_escapado = f"{drive}\\\\:{path}"
     else:
-        srt_escapado = ruta_srt_abs
+        srt_escapado = ruta_clean
     srt_escapado = srt_escapado.replace(" ", "\\ ")
         
     # Si es formato ASS, usar los estilos del propio archivo

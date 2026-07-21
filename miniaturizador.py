@@ -347,9 +347,11 @@ def aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_salida, texto_clickbait, 
             fuente_path = path
             break
             
-    font_size = 92
-    if len(texto_clickbait) > 22:
-        font_size = 78
+    font_size = 105
+    if len(texto_clickbait) > 20:
+        font_size = 88
+    if len(texto_clickbait) > 30:
+        font_size = 76
         
     if fuente_path:
         font = ImageFont.truetype(fuente_path, font_size)
@@ -446,14 +448,34 @@ def aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_salida, texto_clickbait, 
                 width=3
             )
             
-        # Dibujar contorno grueso del texto (outline) para celulares
-        grosor = 9
+        # Capa 4: Soft Neon Glow / Halo (Desenfocado para dar luz neón)
+        try:
+            from PIL import ImageFilter
+            glow_layer = Image.new("RGBA", (1280, 720), (0, 0, 0, 0))
+            gd = ImageDraw.Draw(glow_layer)
+            glow_color = (col_actual[0], col_actual[1], col_actual[2], 200)
+            gd.text((txt_x, txt_y), linea, font=font, fill=glow_color, stroke_width=22)
+            glow_blurred = glow_layer.filter(ImageFilter.GaussianBlur(radius=10))
+            texto_layer = Image.alpha_composite(texto_layer, glow_blurred)
+            t_draw = ImageDraw.Draw(texto_layer)
+        except Exception as e:
+            print(f"⚠️ No se pudo aplicar efecto de neón: {e}")
+            
+        # Capa 5: Sombra negra proyectada profunda (Drop shadow de 7px en diagonal)
+        sh_offset_x = 7
+        sh_offset_y = 7
+        for dx in range(-3, 4):
+            for dy in range(-3, 4):
+                t_draw.text((txt_x + sh_offset_x + dx, txt_y + sh_offset_y + dy), linea, font=font, fill=(0, 0, 0, 220))
+                
+        # Capa 6: Contorno negro nítido clásico (stroke outline para máxima visibilidad en móviles)
+        grosor = 8
         for dx in range(-grosor, grosor + 1):
             for dy in range(-grosor, grosor + 1):
                 if dx*dx + dy*dy <= grosor*grosor:
                     t_draw.text((txt_x + dx, txt_y + dy), linea, font=font, fill=(0, 0, 0, 255))
                     
-        # Dibujar texto principal
+        # Capa 7: Texto principal (en primer plano con el color asignado)
         t_draw.text((txt_x, txt_y), linea, font=font, fill=col_actual)
         
     # 9. Aplicar rotación/inclinación al lienzo de texto si es requerido
@@ -469,6 +491,130 @@ def aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_salida, texto_clickbait, 
         os.makedirs(dir_salida, exist_ok=True)
     img_final.save(ruta_salida, "PNG")
     print(f"✅ Fotomontaje de miniatura clickbait terminado en: {ruta_salida}")
+
+def analizar_miniatura_con_openai(ruta_imagen, api_key):
+    """
+    Analiza la miniatura del competidor usando GPT-4o Vision de OpenAI.
+    """
+    try:
+        with open(ruta_imagen, "rb") as image_file:
+            img_base64 = base64.b64encode(image_file.read()).decode("utf-8")
+            
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        prompt = (
+            "Analiza esta miniatura de YouTube y extrae su estructura de diseño visual en formato JSON. "
+            "Necesito saber exactamente cómo se distribuyen los elementos para poder imitarla.\n\n"
+            "ESTRUCTURA DEL JSON REQUERIDA:\n"
+            "{\n"
+            "  \"texto_posicion_x\": \"left\" o \"right\" o \"center\", \n"
+            "  \"texto_alineacion\": \"left\" o \"right\" o \"center\", \n"
+            "  \"color_primario\": \"yellow\" o \"red\" o \"white\" o \"green\", \n"
+            "  \"color_secundario\": \"white\" o \"yellow\" o \"green\", \n"
+            "  \"inclinacion_grados\": un número entero entre -10 y 10 (grados de rotación del texto), \n"
+            "  \"sujeto_posicion_x\": \"left\" o \"right\" o \"center\", \n"
+            "  \"tiene_banner\": true o false (¿el texto tiene un fondo o rectangulo solido detras?)\n"
+            "}"
+        )
+        
+        payload = {
+            "model": "gpt-4o",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{img_base64}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            "response_format": {"type": "json_object"}
+        }
+        
+        res = requests.post(url, json=payload, headers=headers, timeout=30).json()
+        if "choices" in res and len(res["choices"]) > 0:
+            res_text = res["choices"][0]["message"]["content"]
+            return json.loads(res_text)
+    except Exception as e:
+        print(f"⚠️ Error al analizar miniatura con OpenAI: {e}")
+    return None
+
+def generar_fondo_miniatura_con_dalle3(prompt, api_key, ruta_salida):
+    """
+    Genera un fondo de miniatura clickbait ultra realista con DALL-E 3.
+    """
+    try:
+        url = "https://api.openai.com/v1/images/generations"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        payload = {
+            "model": "dall-e-3",
+            "prompt": prompt,
+            "n": 1,
+            "size": "1024x1024"
+        }
+        res = requests.post(url, json=payload, headers=headers, timeout=60).json()
+        if "data" in res and len(res["data"]) > 0:
+            img_url = res["data"][0]["url"]
+            img_res = requests.get(img_url, stream=True, timeout=20)
+            if img_res.status_code == 200:
+                with open(ruta_salida, "wb") as f:
+                    for chunk in img_res.iter_content(8192):
+                        f.write(chunk)
+                
+                # Redimensionar la imagen de 1024x1024 de DALL-E 3 a 1280x720 (proporción YouTube)
+                # Para evitar distorsión, hacemos un recortado (crop) o redimensionamiento inteligente
+                from PIL import Image
+                img_pil = Image.open(ruta_salida)
+                # Recortar verticalmente para quedar en 16:9
+                ancho, alto = img_pil.size
+                nuevo_alto = int(ancho * 9 / 16)
+                offset = (alto - nuevo_alto) // 2
+                img_recortada = img_pil.crop((0, offset, ancho, offset + nuevo_alto))
+                img_final = img_recortada.resize((1280, 720), Image.Resampling.LANCZOS)
+                img_final.save(ruta_salida, "PNG")
+                
+                print(f"✅ Fondo de miniatura DALL-E 3 guardado y redimensionado a 1280x720 en {ruta_salida}")
+                return True
+        else:
+            print(f"❌ Error de respuesta de DALL-E 3: {res}")
+    except Exception as e:
+        print(f"⚠️ Error general al llamar a DALL-E 3: {e}")
+    return False
+
+def generar_fondo_miniatura_gratis_pollinations(prompt, ruta_salida):
+    """
+    Genera un fondo de miniatura gratis usando FLUX.1 de Pollinations.ai (1280x720).
+    """
+    try:
+        import urllib.parse
+        prompt_encoded = urllib.parse.quote(prompt.strip())
+        url = f"https://image.pollinations.ai/prompt/{prompt_encoded}?width=1280&height=720&model=flux&nologo=true"
+        
+        print(f"📡 Solicitando imagen gratis a Pollinations (FLUX)... URL: {url}")
+        res = requests.get(url, stream=True, timeout=40)
+        if res.status_code == 200:
+            with open(ruta_salida, "wb") as f:
+                for chunk in res.iter_content(8192):
+                    f.write(chunk)
+            print(f"✅ Miniatura gratis generada y guardada en: {ruta_salida}")
+            return True
+        else:
+            print(f"❌ Error de Pollinations: Código HTTP {res.status_code}")
+    except Exception as e:
+        print(f"⚠️ Error al conectar con Pollinations: {e}")
+    return False
 
 if __name__ == "__main__":
     aplicar_estilo_miniatura_avanzado("fondo_prueba.png", "miniatura_prueba.png", "AJO EN AYUNAS: ¡EXPLOTA TU SALUD!")

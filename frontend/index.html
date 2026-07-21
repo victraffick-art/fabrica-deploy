@@ -5,8 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fábrica de Videos - YouTube Studio</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%23FF0000%22><path d=%22M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.525 3.545 12 3.545 12 3.545s-7.525 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.026 0 12 0 12s0 3.974.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.863.508 9.388.508 9.388.508s7.525 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.974 24 12 24 12s0-3.974-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z%22/></svg>">
-    <link rel="stylesheet" href="style.css?v=5.3">
+    <link rel="stylesheet" href="style.css?v=6.0">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Chart.js para gráficas de crecimiento -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body class="dark-theme">
     <div class="app-container">
@@ -33,7 +35,7 @@
             <div class="glass-card" id="card-marketplace" style="width: 100%;">
                 <div class="card-header" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), transparent);">
                     <span class="step-num">🔍</span>
-                    <h2>Fase 1: Investigación de Nicho & Marketplace Viral</h2>
+                    <h2>Fase 1: Investigación de Nicho &amp; Marketplace Viral</h2>
                 </div>
                 <div class="card-body">
                     <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
@@ -72,9 +74,9 @@
                             <label for="search-duration">Duración</label>
                             <select id="search-duration">
                                 <option value="any" selected>Cualquiera</option>
-                                <option value="short">Shorts/Cortos (<4m)</option>
+                                <option value="short">Shorts/Cortos (&lt;4m)</option>
                                 <option value="medium">Medio (4-20m)</option>
-                                <option value="long">Largo (>20m)</option>
+                                <option value="long">Largo (&gt;20m)</option>
                             </select>
                         </div>
                         <div class="input-group" style="flex: 1; min-width: 100px; margin-bottom: 10px;">
@@ -86,15 +88,34 @@
                                 <option value="50">50 videos</option>
                             </select>
                         </div>
-                        <button id="btn-buscar-youtube" class="btn btn-accent" style="height: 42px; padding: 0 25px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                            🔍 BUSCAR VIDEOS GANADORES
-                        </button>
                     </div>
-                    
-                    <!-- Contenedor Grid scrollable de los videos encontrados (Ancho completo, grid responsive!) -->
-                    <div id="search-results-container" style="display:none; margin-top: 25px; max-height: 500px; overflow-y: auto; border: 1.5px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-md); padding: 15px; background: rgba(9, 13, 22, 0.7);">
-                        <div id="search-results-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 15px;">
-                            <!-- Los videos se insertarán aquí dinámicamente -->
+
+                    <!-- FILA DE FILTROS IA Y BOTÓN CENTRADOS -->
+                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin-top: 25px; margin-bottom: 15px; text-align: center; width: 100%;">
+                        <div style="display: flex; gap: 15px; align-items: center; justify-content: center; flex-wrap: wrap;">
+                            <!-- CHIP FILTRO IA/FACELESS -->
+                            <label class="ai-filter-chip" id="ai-filter-label">
+                                <input type="checkbox" id="filter-ia-faceless">
+                                <span class="ai-chip-inner">
+                                    <span class="ai-chip-icon">🤖</span>
+                                    <span class="ai-chip-text">Solo Canales Faceless / IA</span>
+                                    <span class="ai-chip-badge">NUEVO</span>
+                                </span>
+                            </label>
+                            
+                            <button id="btn-buscar-youtube" class="btn btn-accent" style="height: 42px; padding: 0 35px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem; letter-spacing: 0.5px;">
+                                🔍 BUSCAR VIDEOS GANADORES
+                            </button>
+                        </div>
+                        <div style="font-size: 0.78rem; color: #64748b; max-width: 500px; line-height: 1.4;">
+                            Filtra resultados para mostrar solo canales con voz en off y sin presencia humana en cámara (AI voiceover, TTS, faceless)
+                        </div>
+                    </div>
+
+                    <!-- Contenedor de resultados en columna única (horizontal cards) -->
+                    <div id="search-results-container" style="display:none; margin-top: 25px; max-height: 600px; overflow-y: auto; border: 1.5px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-md); padding: 15px; background: rgba(9, 13, 22, 0.7);">
+                        <div id="search-results-grid" style="display: flex; flex-direction: column; gap: 12px;">
+                            <!-- Los videos se insertarán aquí dinámicamente en formato horizontal -->
                         </div>
                     </div>
                 </div>
@@ -180,120 +201,130 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
                     </div>
                     
                     <div class="card-body">
-                        <div class="input-group">
-                            <label for="runpod-url">ComfyUI RunPod Proxy URL</label>
-                            <input type="text" id="runpod-url" value="https://qq2fleqmxl7d35-7777.proxy.runpod.net/proxy/8188">
-                        </div>
-                        
-                        <div class="input-group">
-                            <label for="select-video-quality">Velocidad / Calidad del Video (RunPod)</label>
-                            <select id="select-video-quality">
-                                <option value="Rápido">Rápido (Ahorro GPU: 15 pasos, 576x320) - ~45s/clip</option>
-                                <option value="Equilibrado" selected>Equilibrado (Recomendado: 20 pasos, 720x416) - ~90s/clip</option>
-                                <option value="Alta Calidad">Alta Calidad (Original: 30 pasos, 832x480) - ~150s/clip</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-row">
-                            <div class="input-group half">
-                                <label for="select-voz">Voz del Locutor</label>
-                                <select id="select-voz">
-                                    <!-- Voces en Español Latino / España (Gratis) -->
-                                    <option value="es-MX-JorgeNeural">(Gratis) Jorge - México [Hombre]</option>
-                                    <option value="es-MX-AlvaroNeural">(Gratis) Álvaro - México [Hombre]</option>
-                                    <option value="es-MX-DaliaNeural">(Gratis) Dalia - México [Mujer]</option>
-                                    <option value="es-ES-AlvaroNeural">(Gratis) Álvaro - España [Hombre]</option>
-                                    <option value="es-ES-ElviraNeural">(Gratis) Elvira - España [Mujer]</option>
-                                    <option value="es-CO-GonzaloNeural">(Gratis) Gonzalo - Colombia [Hombre]</option>
-                                    <option value="es-CO-SalomeNeural">(Gratis) Salomé - Colombia [Mujer]</option>
-                                    <option value="es-AR-TomasNeural">(Gratis) Tomás - Argentina [Hombre]</option>
-                                    <option value="es-AR-ElenaNeural">(Gratis) Elena - Argentina [Mujer]</option>
-                                    <option value="es-US-PalomaNeural">(Gratis) Paloma - EE.UU. [Mujer]</option>
-                                    <!-- OpenAI Premium TTS -->
-                                    <option value="alloy">(OpenAI) Alloy - Humana Neutra</option>
-                                    <option value="onyx">(OpenAI) Onyx - Voz Grave Profesional</option>
-                                    <option value="nova">(OpenAI) Nova - Expresiva y Dinámica</option>
-                                </select>
+                        <!-- CATEGORÍA: CONFIGURACIÓN DE VIDEO -->
+                        <div style="margin-bottom: 20px;">
+                            <h3 style="font-size: 0.9rem; color: var(--accent-color); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 8px; margin-bottom: 15px;">🎬 Configuración de Video (RunPod / AI)</h3>
+                            
+                            <div class="input-group">
+                                <label for="runpod-url">ComfyUI RunPod Proxy URL</label>
+                                <input type="text" id="runpod-url" value="https://qq2fleqmxl7d35-7777.proxy.runpod.net/proxy/8188">
                             </div>
                             
-                            <div class="input-group half">
-                                <label for="select-estilo">Estilo de Video (Wan 2.1)</label>
-                                <select id="select-estilo">
-                                    <option value="Realistic">Documental / Realista (Fotorrealista)</option>
-                                    <option value="3D Pixar">Animación 3D (Pixar/Disney)</option>
-                                    <option value="Illustration">Ilustración Vectorial 2D (Corporativa)</option>
-                                    <option value="Anime">Anime Moderno (Cartoon)</option>
-                                    <option value="Cyberpunk">Mapeado Holográfico / Cyberpunk</option>
-                                </select>
-                            </div>
-                        </div>
-                        
-                        <div class="form-row">
-                            <div class="input-group half">
-                                <label for="select-orientacion">Formato / Orientación</label>
-                                <select id="select-orientacion">
-                                    <option value="horizontal">Horizontal (YouTube 16:9)</option>
-                                    <option value="vertical">Vertical (Shorts / Reels / TikTok 9:16)</option>
-                                </select>
+                            <div class="form-row">
+                                <div class="input-group half">
+                                    <label for="select-video-quality">Velocidad / Calidad del Video (RunPod)</label>
+                                    <select id="select-video-quality">
+                                        <option value="Rápido">Rápido (Ahorro GPU: 15 pasos, 576x320) - ~45s/clip</option>
+                                        <option value="Equilibrado" selected>Equilibrado (Recomendado: 20 pasos, 720x416) - ~90s/clip</option>
+                                        <option value="Alta Calidad">Alta Calidad (Original: 30 pasos, 832x480) - ~150s/clip</option>
+                                    </select>
+                                </div>
+                                <div class="input-group half">
+                                    <label for="select-estilo">Estilo de Video (Wan 2.1)</label>
+                                    <select id="select-estilo">
+                                        <option value="Realistic">Documental / Realista (Fotorrealista)</option>
+                                        <option value="3D Pixar">Animación 3D (Pixar/Disney)</option>
+                                        <option value="Illustration">Ilustración Vectorial 2D (Corporativa)</option>
+                                        <option value="Anime">Anime Moderno (Cartoon)</option>
+                                        <option value="Cyberpunk">Mapeado Holográfico / Cyberpunk</option>
+                                    </select>
+                                </div>
                             </div>
                             
-                            <div class="input-group half">
-                                <label for="select-musica">Música de Fondo</label>
-                                <select id="select-musica">
-                                    <option value="lofi">Lofi Hip Hop Beats (Moderno/Relajado)</option>
-                                    <option value="epic">Épica y Cinemática (Gran Aventura/Misterio)</option>
-                                    <option value="medical">Música Científica / Tecnológica (Informativa)</option>
-                                    <option value="motivacion">Motivacional / Inspiradora (Positiva)</option>
-                                    <option value="suspense">Misterio / Suspenso (Atrapante)</option>
-                                    <option value="relax">Lenta y Relajante (Salud/Spa)</option>
-                                    <option value="none">Sin Música (Solo Voz en Off)</option>
-                                </select>
+                            <div class="form-row">
+                                <div class="input-group half">
+                                    <label for="select-orientacion">Formato / Orientación</label>
+                                    <select id="select-orientacion">
+                                        <option value="horizontal">Horizontal (YouTube 16:9)</option>
+                                        <option value="vertical">Vertical (Shorts / Reels / TikTok 9:16)</option>
+                                    </select>
+                                </div>
+                                <div class="input-group half">
+                                    <!-- Espacio alineado -->
+                                </div>
                             </div>
                         </div>
 
-                        <!-- MEJORAS DE AUDIO Y CLONACIÓN -->
-                        <div class="form-row">
-                            <div class="input-group half">
-                                <label for="select-sub-pitch">Tono de Voz (Misterioso/Narrativo)</label>
-                                <select id="select-sub-pitch">
-                                    <option value="-20Hz">Grave / Misterioso (-20Hz)</option>
-                                    <option value="-10Hz">Profundo / Narrativo (-10Hz)</option>
-                                    <option value="+0Hz" selected>Normal (0Hz)</option>
-                                    <option value="+10Hz">Agudo (+10Hz)</option>
-                                </select>
-                            </div>
+                        <!-- CATEGORÍA: CONFIGURACIÓN DE VOZ, AUDIO Y TRADUCCIÓN -->
+                        <div style="margin-bottom: 20px; margin-top: 25px;">
+                            <h3 style="font-size: 0.9rem; color: var(--accent-color); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 8px; margin-bottom: 15px;">🎙️ Voz en Off, Música y Traducción</h3>
                             
-                            <div class="input-group half">
-                                <label for="select-sub-rate">Velocidad de Voz</label>
-                                <select id="select-sub-rate">
-                                    <option value="+12%">Rápido (+12%)</option>
-                                    <option value="+6%">Fluido (+6%)</option>
-                                    <option value="+0%" selected>Normal (0%)</option>
-                                    <option value="-8%">Pausado (-8%)</option>
-                                </select>
+                            <div class="form-row">
+                                <div class="input-group half">
+                                    <label for="select-voz">Voz del Locutor</label>
+                                    <select id="select-voz">
+                                        <!-- Voces en Español Latino / España (Gratis) -->
+                                        <option value="es-MX-JorgeNeural">(Gratis) Jorge - México [Hombre]</option>
+                                        <option value="es-MX-AlvaroNeural">(Gratis) Álvaro - México [Hombre]</option>
+                                        <option value="es-MX-DaliaNeural">(Gratis) Dalia - México [Mujer]</option>
+                                        <option value="es-ES-AlvaroNeural">(Gratis) Álvaro - España [Hombre]</option>
+                                        <option value="es-ES-ElviraNeural">(Gratis) Elvira - España [Mujer]</option>
+                                        <option value="es-CO-GonzaloNeural">(Gratis) Gonzalo - Colombia [Hombre]</option>
+                                        <option value="es-CO-SalomeNeural">(Gratis) Salomé - Colombia [Mujer]</option>
+                                        <option value="es-AR-TomasNeural">(Gratis) Tomás - Argentina [Hombre]</option>
+                                        <option value="es-AR-ElenaNeural">(Gratis) Elena - Argentina [Mujer]</option>
+                                        <option value="es-US-PalomaNeural">(Gratis) Paloma - EE.UU. [Mujer]</option>
+                                        <!-- OpenAI Premium TTS -->
+                                        <option value="alloy">(OpenAI) Alloy - Humana Neutra</option>
+                                        <option value="onyx">(OpenAI) Onyx - Voz Grave Profesional</option>
+                                        <option value="nova">(OpenAI) Nova - Expresiva y Dinámica</option>
+                                    </select>
+                                </div>
+                                <div class="input-group half">
+                                    <label for="select-musica">Música de Fondo</label>
+                                    <select id="select-musica">
+                                        <option value="lofi">Lofi Hip Hop Beats (Moderno/Relajado)</option>
+                                        <option value="epic">Épica y Cinemática (Gran Aventura/Misterio)</option>
+                                        <option value="medical">Música Científica / Tecnológica (Informativa)</option>
+                                        <option value="motivacion">Motivacional / Inspiradora (Positiva)</option>
+                                        <option value="suspense">Misterio / Suspenso (Atrapante)</option>
+                                        <option value="relax">Lenta y Relajante (Salud/Spa)</option>
+                                        <option value="none">Sin Música (Solo Voz en Off)</option>
+                                    </select>
+                                </div>
                             </div>
-                        </div>
 
-                        <div class="form-row">
-                            <div class="input-group half">
-                                <label for="select-volumen-musica">Volumen de Música</label>
-                                <select id="select-volumen-musica">
-                                    <option value="0.05">Bajo (5%)</option>
-                                    <option value="0.12" selected>Medio (12%)</option>
-                                    <option value="0.20">Alto (20%)</option>
-                                    <option value="0.00">Apagado (0%)</option>
-                                </select>
+                            <div class="form-row">
+                                <div class="input-group half">
+                                    <label for="select-sub-pitch">Tono de Voz (Misterioso/Narrativo)</label>
+                                    <select id="select-sub-pitch">
+                                        <option value="-20Hz">Grave / Misterioso (-20Hz)</option>
+                                        <option value="-10Hz">Profundo / Narrativo (-10Hz)</option>
+                                        <option value="+0Hz" selected>Normal (0Hz)</option>
+                                        <option value="+10Hz">Agudo (+10Hz)</option>
+                                    </select>
+                                </div>
+                                <div class="input-group half">
+                                    <label for="select-sub-rate">Velocidad de Voz</label>
+                                    <select id="select-sub-rate">
+                                        <option value="+12%">Rápido (+12%)</option>
+                                        <option value="+6%">Fluido (+6%)</option>
+                                        <option value="+0%" selected>Normal (0%)</option>
+                                        <option value="-8%">Pausado (-8%)</option>
+                                    </select>
+                                </div>
                             </div>
-                            
-                            <div class="input-group half">
-                                <label style="margin-bottom: 4px;">Clonar a otros idiomas</label>
-                                <div style="display: flex; gap: 15px; margin-top: 8px; font-size: 0.9rem;">
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal; color: var(--text-primary);">
-                                        <input type="checkbox" id="clone-en" value="en" style="width: auto; height: auto;"> Inglés (EE.UU.)
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal; color: var(--text-primary);">
-                                        <input type="checkbox" id="clone-pt" value="pt" style="width: auto; height: auto;"> Portugués (Brasil)
-                                    </label>
+
+                            <div class="form-row">
+                                <div class="input-group half">
+                                    <label for="select-volumen-musica">Volumen de Música</label>
+                                    <select id="select-volumen-musica">
+                                        <option value="0.05">Bajo (5%)</option>
+                                        <option value="0.12" selected>Medio (12%)</option>
+                                        <option value="0.20">Alto (20%)</option>
+                                        <option value="0.00">Apagado (0%)</option>
+                                    </select>
+                                </div>
+                                <div class="input-group half">
+                                    <label style="margin-bottom: 4px;">Clonar a otros idiomas</label>
+                                    <div style="display: flex; gap: 15px; margin-top: 8px; font-size: 0.9rem;">
+                                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal; color: var(--text-primary);">
+                                            <input type="checkbox" id="clone-en" value="en" style="width: auto; height: auto;"> Inglés (EE.UU.)
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal; color: var(--text-primary);">
+                                            <input type="checkbox" id="clone-pt" value="pt" style="width: auto; height: auto;"> Portugués (Brasil)
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -550,6 +581,75 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
                     </div>
                 </div>
 
+                <!-- CREADOR DE MINIATURAS MANUAL / INDEPENDIENTE -->
+                <div class="glass-card creator-manual-card" style="border-color: rgba(245, 158, 11, 0.3);">
+                    <div class="card-header" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), transparent);">
+                        <span class="step-num">🎨</span>
+                        <h2>Creador de Miniaturas Independiente (Manual / IA)</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="input-group">
+                            <label for="manual-prompt-fondo">Idea o Prompt de Fondo (IA)</label>
+                            <input type="text" id="manual-prompt-fondo" placeholder="Ej: a detailed stickman in a dark red digital landscape, or jesus in ancient temple...">
+                        </div>
+                        <div class="form-row">
+                            <div class="input-group half">
+                                <label for="manual-texto-click">Texto Clickbait (3-4 palabras)</label>
+                                <input type="text" id="manual-texto-click" placeholder="Ej: ¡EVITA ESTO!, ¡NO LO HAGAS!, ¡PELIGRO!">
+                            </div>
+                            <div class="input-group half">
+                                <label for="manual-elem-clave">Objeto Clave a Recortar (Opcional)</label>
+                                <input type="text" id="manual-elem-clave" placeholder="Ej: garlic, stickman, rosemary, cross">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="input-group half">
+                                <label for="manual-comp-id">Copiar Diseño de Video ID (Opcional)</label>
+                                <input type="text" id="manual-comp-id" placeholder="Ej: g3eS2vjM4oA (para imitar su estructura)">
+                            </div>
+                            <div class="input-group half">
+                                <label for="manual-size">Formato / Tamaño</label>
+                                <select id="manual-size">
+                                    <option value="1280x720" selected>YouTube Horizontal (1280x720)</option>
+                                    <option value="720x1280">YouTube Shorts / TikTok (720x1280)</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <button id="btn-crear-minia-manual" class="btn btn-primary btn-full btn-large" style="margin-top: 10px;">
+                            🎨 GENERAR MINIATURAS HIGH-CTR
+                        </button>
+                        
+                        <!-- Grid de resultados manuales -->
+                        <div id="manual-results-box" style="display:none; margin-top: 25px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 20px;">
+                            <h3 style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 15px;">3 Opciones de Miniatura Generadas</h3>
+                            <div class="thumbnails-grid" style="display: flex; gap: 15px;">
+                                <div class="thumbnail-item" style="width: 33.33%;">
+                                    <h4 style="font-size: 0.8rem; color: var(--text-secondary);">Opción 1: Imitación Layout</h4>
+                                    <div class="media-container thumbnail-preview-box" style="aspect-ratio: 16/9;">
+                                        <img id="manual-img-opc1" src="placeholder_minia.png" alt="Opcion 1 no generada">
+                                    </div>
+                                    <a id="manual-download-opc1" class="btn btn-secondary btn-small btn-full" style="margin-top: 8px;" download>Descargar Opción 1</a>
+                                </div>
+                                <div class="thumbnail-item" style="width: 33.33%;">
+                                    <h4 style="font-size: 0.8rem; color: var(--text-secondary);">Opción 2: Alerta Roja</h4>
+                                    <div class="media-container thumbnail-preview-box" style="aspect-ratio: 16/9;">
+                                        <img id="manual-img-opc2" src="placeholder_minia.png" alt="Opcion 2 no generada">
+                                    </div>
+                                    <a id="manual-download-opc2" class="btn btn-secondary btn-small btn-full" style="margin-top: 8px;" download>Descargar Opción 2</a>
+                                </div>
+                                <div class="thumbnail-item" style="width: 33.33%;">
+                                    <h4 style="font-size: 0.8rem; color: var(--text-secondary);">Opción 3: Limpio</h4>
+                                    <div class="media-container thumbnail-preview-box" style="aspect-ratio: 16/9;">
+                                        <img id="manual-img-opc3" src="placeholder_minia.png" alt="Opcion 3 no generada">
+                                    </div>
+                                    <a id="manual-download-opc3" class="btn btn-secondary btn-small btn-full" style="margin-top: 8px;" download>Descargar Opción 3</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </section>
             
         </main>
@@ -586,6 +686,147 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
         </div>
     </div>
 
-    <script src="app.js?v=5.3"></script>
+    <!-- ============================================================ -->
+    <!-- MODAL DE ESTADÍSTICAS + GRÁFICAS DE CRECIMIENTO              -->
+    <!-- ============================================================ -->
+    <div class="modal-overlay" id="modal-stats" style="display:none;" onclick="cerrarModalStats(event)">
+        <div class="stats-modal-card" onclick="event.stopPropagation()">
+            <!-- Header del modal -->
+            <div class="stats-modal-header">
+                <div class="stats-header-left">
+                    <span class="stats-modal-icon">📊</span>
+                    <div>
+                        <h2 id="stats-modal-title" class="stats-modal-title-text">Estadísticas del Video</h2>
+                        <span id="stats-modal-channel" class="stats-modal-channel-name"></span>
+                    </div>
+                </div>
+                <button class="btn-close" onclick="cerrarModalStats()">×</button>
+            </div>
+
+            <!-- Body scrollable -->
+            <div class="stats-modal-body">
+                <!-- Fila superior: thumbnail + métricas rápidas -->
+                <div class="stats-top-row">
+                    <!-- Thumbnail -->
+                    <div class="stats-thumb-col">
+                        <div class="stats-thumb-wrap">
+                            <img id="stats-thumb" src="" alt="thumbnail">
+                            <span id="stats-duration-badge" class="stats-duration-badge"></span>
+                        </div>
+                        <!-- Botones de acción -->
+                        <div class="stats-action-btns">
+                            <a id="stats-btn-video" href="#" target="_blank" class="btn btn-accent btn-small" style="width:100%; margin-bottom:8px; text-decoration:none;">
+                                ▶️ Ver Video en YouTube
+                            </a>
+                            <a id="stats-btn-canal" href="#" target="_blank" class="btn btn-secondary btn-small" style="width:100%; text-decoration:none;">
+                                📺 Visitar Canal
+                            </a>
+                        </div>
+                        <!-- Indicador IA -->
+                        <div id="stats-ia-badge" class="stats-ia-badge" style="display:none;">
+                            🤖 Posiblemente Canal Faceless / IA
+                        </div>
+                    </div>
+
+                    <!-- Métricas rápidas en grid -->
+                    <div class="stats-metrics-col">
+                        <div class="stats-metrics-grid">
+                            <div class="stat-tile stat-tile-views">
+                                <span class="stat-tile-icon">👁️</span>
+                                <span class="stat-tile-value" id="stats-views">—</span>
+                                <span class="stat-tile-label">Vistas del Video</span>
+                            </div>
+                            <div class="stat-tile stat-tile-subs">
+                                <span class="stat-tile-icon">👥</span>
+                                <span class="stat-tile-value" id="stats-subs">—</span>
+                                <span class="stat-tile-label">Suscriptores</span>
+                            </div>
+                            <div class="stat-tile stat-tile-outlier">
+                                <span class="stat-tile-icon">🚀</span>
+                                <span class="stat-tile-value" id="stats-outlier">—</span>
+                                <span class="stat-tile-label">Outlier Ratio</span>
+                            </div>
+                            <div class="stat-tile stat-tile-earn">
+                                <span class="stat-tile-icon">💰</span>
+                                <span class="stat-tile-value" id="stats-earn">—</span>
+                                <span class="stat-tile-label">Ganancia Est.</span>
+                            </div>
+                            <div class="stat-tile stat-tile-date">
+                                <span class="stat-tile-icon">📅</span>
+                                <span class="stat-tile-value" id="stats-video-date">—</span>
+                                <span class="stat-tile-label">Fecha de Subida</span>
+                            </div>
+                            <div class="stat-tile stat-tile-channeldate">
+                                <span class="stat-tile-icon">🏛️</span>
+                                <span class="stat-tile-value" id="stats-channel-date">—</span>
+                                <span class="stat-tile-label">Canal Creado</span>
+                            </div>
+                        </div>
+
+                        <!-- Botón Seleccionar Tema -->
+                        <button id="stats-btn-select" class="btn btn-primary btn-full" style="margin-top: 12px;">
+                            👉 Usar este tema para mi video
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Divisor -->
+                <div class="stats-section-divider">
+                    <span>📈 Análisis de Crecimiento</span>
+                </div>
+
+                <!-- GRÁFICAS -->
+                <div class="stats-charts-row">
+                    <!-- Gráfica 1: Crecimiento de vistas del video -->
+                    <div class="stats-chart-box">
+                        <div class="stats-chart-title">
+                            <span class="chart-dot chart-dot-blue"></span>
+                            Proyección de Vistas del Video
+                        </div>
+                        <div class="stats-chart-subtitle">Curva estimada de crecimiento viral desde la publicación</div>
+                        <div class="stats-chart-wrap">
+                            <canvas id="chart-video-views"></canvas>
+                        </div>
+                    </div>
+                    <!-- Gráfica 2: Crecimiento de suscriptores del canal -->
+                    <div class="stats-chart-box">
+                        <div class="stats-chart-title">
+                            <span class="chart-dot chart-dot-green"></span>
+                            Crecimiento del Canal
+                        </div>
+                        <div class="stats-chart-subtitle">Trayectoria estimada de suscriptores y vistas totales del canal</div>
+                        <div class="stats-chart-wrap">
+                            <canvas id="chart-channel-growth"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Fila de indicadores adicionales -->
+                <div class="stats-section-divider" style="margin-top: 20px;">
+                    <span>🎯 Indicadores Clave</span>
+                </div>
+                <div class="stats-kpi-row">
+                    <div class="stats-kpi-item">
+                        <span class="kpi-label">Velocidad de Vistas</span>
+                        <span class="kpi-value" id="kpi-velocity">—</span>
+                    </div>
+                    <div class="stats-kpi-item">
+                        <span class="kpi-label">Potencial de Replicación</span>
+                        <span class="kpi-value kpi-highlight" id="kpi-potential">—</span>
+                    </div>
+                    <div class="stats-kpi-item">
+                        <span class="kpi-label">Ratio Vistas/Subs</span>
+                        <span class="kpi-value" id="kpi-ratio">—</span>
+                    </div>
+                    <div class="stats-kpi-item">
+                        <span class="kpi-label">Duración del Video</span>
+                        <span class="kpi-value" id="kpi-duration">—</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=6.0"></script>
 </body>
 </html>

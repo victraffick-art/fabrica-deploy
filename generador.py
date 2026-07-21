@@ -93,7 +93,7 @@ def enviar_prompt_a_comfyui(server_url, prompt_texto, index_clip, seed=42, width
                 "model": "Wan2.1/wan2.1_t2v_1.3B_bf16.safetensors",
                 "base_precision": "bf16",
                 "quantization": "disabled",
-                "load_device": "offload_device",
+                "load_device": "gpu",
                 "block_swap_args": ["10", 0]
             }, 
             "class_type": "WanVideoModelLoader"
@@ -111,7 +111,7 @@ def enviar_prompt_a_comfyui(server_url, prompt_texto, index_clip, seed=42, width
             "inputs": {
                 "model_name": "umt5-xxl-enc-bf16.safetensors",
                 "precision": "bf16",
-                "quantization": "disabled"
+                "quantization": "fp8_e4m3fn"
             }, 
             "class_type": "LoadWanVideoT5TextEncoder"
         },
@@ -131,7 +131,7 @@ def enviar_prompt_a_comfyui(server_url, prompt_texto, index_clip, seed=42, width
                 "cfg": 6.0, 
                 "shift": 5.0,
                 "seed": seed + index_clip, 
-                "force_offload": True,
+                "force_offload": False,
                 "scheduler": "unipc",
                 "riflex_freq_index": 0
             }, 

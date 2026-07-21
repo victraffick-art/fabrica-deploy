@@ -74,7 +74,9 @@ estado_proceso = {
     "mensajes": [],
     "datos_video": None,
     "directorio_salida": "",
-    "clonar_idiomas": []
+    "clonar_idiomas": [],
+    "esperando_confirmacion_runpod": False,
+    "respuesta_confirmacion_runpod": None
 }
 
 # Las funciones de configuración y apagado de RunPod han sido removidas.
@@ -94,6 +96,7 @@ class RedactarRequest(BaseModel):
     estructura: str = "Mitos Desmentidos"
     intro_pers: str = ""
     cierre_pers: str = ""
+    competidor_video_id: Optional[str] = None
 
 class ProducirRequest(BaseModel):
     tema: str
@@ -195,6 +198,8 @@ def clear_status():
     estado_proceso["progreso"] = 0
     estado_proceso["mensajes"] = []
     estado_proceso["datos_video"] = None
+    estado_proceso["esperando_confirmacion_runpod"] = False
+    estado_proceso["respuesta_confirmacion_runpod"] = None
     return {"status": "ok"}
 
 class NichoBuscarRequest(BaseModel):
@@ -598,6 +603,28 @@ def api_redactar(req: RedactarRequest):
         
     tema = req.tema.strip()
     duracion = req.duracion_min
+    
+    competidor_video_id = req.competidor_video_id
+    transcripcion_original = ""
+    if competidor_video_id:
+        registrar_log(f"🕵️ Intentando extraer transcripción del video competidor ID: {competidor_video_id}...")
+        try:
+            from youtube_transcript_api import YouTubeTranscriptApi
+            transcript_list = YouTubeTranscriptApi.list_transcripts(competidor_video_id)
+            try:
+                transcript = transcript_list.find_transcript(['es', 'es-419', 'es-ES'])
+            except:
+                try:
+                    transcript = transcript_list.find_transcript(['en'])
+                except:
+                    # Intentar obtener el primer idioma disponible en la lista de transcripciones creadas manualmente
+                    transcript = next(iter(transcript_list._manually_created_transcripts.values()))
+            
+            lines = transcript.fetch()
+            transcripcion_original = " ".join([line['text'] for line in lines])
+            registrar_log(f"✅ ¡Transcripción extraída exitosamente! ({len(transcripcion_original)} caracteres).")
+        except Exception as e:
+            registrar_log(f"⚠️ No se pudo obtener la transcripción automática o manual del video: {e}")
     palabras_objetivo = int(duracion * 140)
     # Al menos 3 escenas para 30s, 5 para 1 min o proporcional para más largos
     escenas_objetivo = max(3 if duracion < 1.0 else 5, int(duracion * 6))
@@ -635,6 +662,18 @@ def api_redactar(req: RedactarRequest):
     if req.cierre_pers:
         personalizacion_instrucciones += f"\n- En el cierre del video, debes integrar el siguiente llamado a la acción (CTA) personalizado de forma fluida: '{req.cierre_pers}'."
 
+    extra_transcripcion_prompt = ""
+    if transcripcion_original:
+        extra_transcripcion_prompt = (
+            f"\n\n🚨 COPIAR ESTRUCTURA RETENTIVA VIRAL:\n"
+            f"El video ganador del competidor que queremos replicar tiene la siguiente transcripción/guion real:\n"
+            f"\"\"\"\n{transcripcion_original[:3500]}\n\"\"\"\n\n"
+            f"Analiza a fondo el guion de arriba: su ritmo, cómo maneja los primeros 5 segundos (el gancho), "
+            f"el orden en el que revela la información de salud, los giros dramáticos y cómo mantiene alta la retención antes del final. "
+            f"Debes imitar/replicar esa misma FÓRMULA DE RETENCIÓN y estructura en el nuevo guion que vas a escribir sobre el tema '{tema}'. "
+            f"El guion nuevo debe ser completamente original y enfocado en '{tema}', no uses frases del competidor, sino su estructura retentiva y estilo de narración."
+        )
+
     prompt_solicitud = (
         f"Actúa como un copywriter estrella de YouTube especializado en salud y neuro-marketing. "
         f"Basado en el tema '{tema}', debes retornar un objeto JSON estrictamente bajo la estructura provista. "
@@ -642,7 +681,8 @@ def api_redactar(req: RedactarRequest):
         f"(aproximadamente {duracion} minuto(s) de video a una velocidad de habla normal). No añadas marcas de tiempo en el guion.\n\n"
         f"INSTRUCCIONES DE ESTRUCTURA:\n"
         f"{estructura_instruccion}\n"
-        f"{personalizacion_instrucciones}\n\n"
+        f"{personalizacion_instrucciones}"
+        f"{extra_transcripcion_prompt}\n\n"
         f"ESTRUCTURA DEL JSON REQUERIDA:\n"
         f"{{\n"
         f'  "titulos": ["Título Clickbait 1", "Título Clickbait 2", "Título Clickbait 3"],\n'
@@ -760,10 +800,40 @@ def api_redactar(req: RedactarRequest):
         registrar_log(f"❌ Error redactando guion: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def obtener_openai_api_key():
+    # 1. Leer de config file
+    ruta_config = os.path.join(directorio_actual, "runpod_config.json")
+    if os.path.exists(ruta_config):
+        try:
+            with open(ruta_config, "r") as f:
+                data = json.load(f)
+                okey = data.get("openai_api_key")
+                if okey:
+                    return okey.strip()
+        except:
+            pass
+    # 2. Leer de env var
+    okey_env = os.environ.get("OPENAI_API_KEY")
+    if okey_env:
+        return okey_env.strip()
+    return None
+
 class RegenerarMiniaturaRequest(BaseModel):
     tema: str
     url_runpod: str
     competidor_video_id: Optional[str] = None
+    forzar_comfy: Optional[bool] = False
+
+class CrearMiniaturaManualRequest(BaseModel):
+    prompt_fondo: str
+    texto_clickbait: str
+    elemento_clave: Optional[str] = ""
+    url_runpod: str
+    competidor_video_id: Optional[str] = None
+    forzar_comfy: Optional[bool] = False
+
+class ConfirmarRunpodRequest(BaseModel):
+    respuesta: str
 
 @app.post("/api/miniatura/regenerar")
 def api_regenerar_miniatura(req: RegenerarMiniaturaRequest):
@@ -804,19 +874,42 @@ def api_regenerar_miniatura(req: RegenerarMiniaturaRequest):
     import random
     semilla_aleatoria = random.randint(1, 1000000)
     
-    registrar_log(f"🎨 Re-generando fondo de miniatura (Nueva Semilla: {semilla_aleatoria})...")
-    exito_fondo = generador.generar_fondo_miniatura(url_runpod_interna, prompt_img, ruta_fondo, seed=semilla_aleatoria)
+    openai_key = obtener_openai_api_key()
+    exito_fondo = False
     
+    if req.forzar_comfy:
+        registrar_log(f"🚀 Re-generando fondo de miniatura en RunPod (Forzado por usuario, Semilla: {semilla_aleatoria})...")
+        exito_fondo = generador.generar_fondo_miniatura(url_runpod_interna, prompt_img, ruta_fondo, seed=semilla_aleatoria)
+    else:
+        if openai_key:
+            registrar_log("⏳ Creando ilustración de fondo con DALL-E 3 de OpenAI...")
+            exito_fondo = miniaturizador.generar_fondo_miniatura_con_dalle3(prompt_img, openai_key, ruta_fondo)
+            
+        if not exito_fondo:
+            registrar_log("⏳ Creando ilustración de fondo GRATIS con FLUX.1 (Pollinations)...")
+            exito_fondo = miniaturizador.generar_fondo_miniatura_gratis_pollinations(prompt_img, ruta_fondo)
+            
+        if not exito_fondo:
+            registrar_log("⚠️ Las opciones gratuitas fallaron. Reclamando confirmación para usar RunPod...")
+            return {
+                "status": "need_confirmation",
+                "message": "Las opciones gratuitas (OpenAI / Pollinations) fallaron o no están configuradas. ¿Deseas encender RunPod (ComfyUI) y continuar la generación de miniaturas allí?"
+            }
+            
     if not exito_fondo:
-        raise HTTPException(status_code=500, detail="Fallo la generación del fondo de miniatura en RunPod.")
+        raise HTTPException(status_code=500, detail="Falló la generación del fondo de miniatura.")
         
     # Re-componer layouts
     layout_config = None
     if req.competidor_video_id:
         ruta_comp = os.path.join(dir_salida, "miniatura_competidora.jpg")
         if os.path.exists(ruta_comp):
-            registrar_log("🧠 Re-analizando miniatura competidora...")
-            layout_config = miniaturizador.analizar_miniatura_con_gemini(ruta_comp, API_KEY)
+            if openai_key:
+                registrar_log("🧠 Re-analizando miniatura competidora con OpenAI GPT-4o...")
+                layout_config = miniaturizador.analizar_miniatura_con_openai(ruta_comp, openai_key)
+            if not layout_config:
+                registrar_log("🧠 Re-analizando miniatura competidora con Gemini Vision...")
+                layout_config = miniaturizador.analizar_miniatura_con_gemini(ruta_comp, API_KEY)
             
     elem_clave = datos_video.get("elemento_clave", "")
     
@@ -871,6 +964,125 @@ def api_regenerar_miniatura(req: RegenerarMiniaturaRequest):
             
     registrar_log("✅ Regeneración de miniaturas completada con éxito.")
     return {"status": "ok", "directorio_salida": dir_salida}
+
+@app.post("/api/miniatura/crear_manual")
+def api_crear_miniatura_manual(req: CrearMiniaturaManualRequest):
+    # Creamos una carpeta de salida especial para creaciones manuales
+    safe_name = "Manual_Thumbnails"
+    dir_salida = os.path.join(outputs_dir, safe_name)
+    os.makedirs(dir_salida, exist_ok=True)
+    
+    prompt_img = req.prompt_fondo.strip()
+    texto_click = req.texto_clickbait.strip()
+    elem_clave = req.elemento_clave.strip() if req.elemento_clave else ""
+    
+    # Intentar generar imagen
+    ruta_fondo = os.path.join(dir_salida, "fondo_manual.png")
+    
+    url_runpod_interna = req.url_runpod.strip().strip("/")
+    if url_runpod_interna and not url_runpod_interna.startswith(("http://", "https://")):
+        url_runpod_interna = "https://" + url_runpod_interna
+        
+    if "-8188.proxy.runpod.net" in url_runpod_interna:
+        url_runpod_interna = url_runpod_interna.replace("-8188.proxy.runpod.net", "-7777.proxy.runpod.net/proxy/8188")
+        
+    if os.environ.get("RUNPOD_POD_ID"):
+        if "runpod.net" in req.url_runpod or "proxy" in req.url_runpod:
+            url_runpod_interna = "http://127.0.0.1:8188"
+            
+    openai_key = obtener_openai_api_key()
+    exito_fondo = False
+    
+    if req.forzar_comfy:
+        registrar_log(f"🚀 [MANUAL] Generando fondo con SDXL en RunPod (Forzado por usuario): '{prompt_img}'...")
+        import random
+        semilla_aleatoria = random.randint(1, 1000000)
+        exito_fondo = generador.generar_fondo_miniatura(url_runpod_interna, prompt_img, ruta_fondo, seed=semilla_aleatoria)
+    else:
+        if openai_key:
+            registrar_log(f"⏳ [MANUAL] Generando fondo con DALL-E 3 de OpenAI: '{prompt_img}'...")
+            exito_fondo = miniaturizador.generar_fondo_miniatura_con_dalle3(prompt_img, openai_key, ruta_fondo)
+            
+        if not exito_fondo:
+            registrar_log(f"⏳ [MANUAL] Generando fondo GRATIS con FLUX.1 (Pollinations): '{prompt_img}'...")
+            exito_fondo = miniaturizador.generar_fondo_miniatura_gratis_pollinations(prompt_img, ruta_fondo)
+            
+        if not exito_fondo:
+            registrar_log("⚠️ [MANUAL] Las opciones gratuitas fallaron. Reclamando confirmación para usar RunPod...")
+            return {
+                "status": "need_confirmation",
+                "message": "Las opciones gratuitas (OpenAI / Pollinations) fallaron o no están configuradas. ¿Deseas encender RunPod (ComfyUI) y continuar la generación de miniaturas allí?"
+            }
+        
+    if not exito_fondo:
+        raise HTTPException(status_code=500, detail="No se pudo generar el fondo de miniatura.")
+        
+    # Copiar layout del competidor si se proporciona
+    layout_config = None
+    if req.competidor_video_id:
+        ruta_comp = os.path.join(dir_salida, "miniatura_competidora.jpg")
+        if miniaturizador.descargar_miniatura_competidor(req.competidor_video_id, ruta_comp):
+            if openai_key:
+                registrar_log("🧠 [MANUAL] Analizando miniatura competidora con OpenAI GPT-4o...")
+                layout_config = miniaturizador.analizar_miniatura_con_openai(ruta_comp, openai_key)
+            if not layout_config:
+                registrar_log("🧠 [MANUAL] Analizando miniatura competidora con Gemini Vision...")
+                layout_config = miniaturizador.analizar_miniatura_con_gemini(ruta_comp, API_KEY)
+                
+    # Componer opciones
+    layout_opcion1 = layout_config if layout_config else {
+        "texto_posicion_x": "left",
+        "texto_alineacion": "left",
+        "color_primario": "yellow",
+        "color_secundario": "white",
+        "inclinacion_grados": -3,
+        "sujeto_posicion_x": "right",
+        "tiene_banner": True
+    }
+    
+    # Generamos los 3 archivos en el directorio manual
+    ruta_opc1 = os.path.join(dir_salida, "manual_opcion1.png")
+    miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc1, texto_click, layout_opcion1, elem_clave, url_runpod_interna)
+    
+    layout_opcion2 = {
+        "texto_posicion_x": "left",
+        "texto_alineacion": "left",
+        "color_primario": "white",
+        "color_secundario": "yellow",
+        "inclinacion_grados": 3,
+        "sujeto_posicion_x": "right",
+        "tiene_banner": True
+    }
+    ruta_opc2 = os.path.join(dir_salida, "manual_opcion2.png")
+    miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc2, texto_click, layout_opcion2, elem_clave, url_runpod_interna)
+    
+    layout_opcion3 = {
+        "texto_posicion_x": "left",
+        "texto_alineacion": "left",
+        "color_primario": "green",
+        "color_secundario": "white",
+        "inclinacion_grados": 0,
+        "sujeto_posicion_x": "right",
+        "tiene_banner": False
+    }
+    ruta_opc3 = os.path.join(dir_salida, "manual_opcion3.png")
+    miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc3, texto_click, layout_opcion3, elem_clave, url_runpod_interna)
+    
+    registrar_log("✅ Creador manual de miniaturas completado con éxito.")
+    import time
+    t = int(time.time())
+    return {
+        "status": "ok",
+        "opcion1": f"/outputs/{safe_name}/manual_opcion1.png?t={t}",
+        "opcion2": f"/outputs/{safe_name}/manual_opcion2.png?t={t}",
+        "opcion3": f"/outputs/{safe_name}/manual_opcion3.png?t={t}",
+        "directorio_salida": dir_salida
+    }
+
+@app.post("/api/producir/confirmar_comfy")
+def api_confirmar_comfy(req: ConfirmarRunpodRequest):
+    estado_proceso["respuesta_confirmacion_runpod"] = req.respuesta
+    return {"status": "ok"}
 
 def proceso_background_producir(req: ProducirRequest):
     loop = asyncio.new_event_loop()
@@ -1111,72 +1323,90 @@ def proceso_background_producir(req: ProducirRequest):
         ruta_fondo = os.path.join(dir_salida, "fondo_minia.png")
         ruta_minia = os.path.join(dir_salida, "miniatura_final.png")
         
-        # Generar fondo en RunPod usando SDXL
-        registrar_log("⏳ Creando ilustración de fondo con SDXL en RunPod...")
-        exito_fondo = generador.generar_fondo_miniatura(url_runpod_interna, prompt_img, ruta_fondo)
+        # Generar fondo en RunPod usando SDXL o DALL-E 3 si hay API Key de OpenAI
+        openai_key = obtener_openai_api_key()
+        exito_fondo = False
         
-        # Descarga e imitación de la miniatura competidora si se proporciona el ID
-        layout_config = None
-        if req.competidor_video_id:
-            ruta_comp = os.path.join(dir_salida, "miniatura_competidora.jpg")
-            registrar_log(f"📥 Descargando miniatura competidora (Video ID: {req.competidor_video_id})...")
-            if miniaturizador.descargar_miniatura_competidor(req.competidor_video_id, ruta_comp):
-                registrar_log("🧠 Analizando diseño de la miniatura competidora con Gemini Vision...")
-                layout_config = miniaturizador.analizar_miniatura_con_gemini(ruta_comp, API_KEY)
-                if layout_config:
-                    registrar_log(f"✅ Análisis completado. Estructura copiada: {json.dumps(layout_config)}")
+        if openai_key:
+            registrar_log("⏳ Creando ilustración de fondo con DALL-E 3 de OpenAI...")
+            exito_fondo = miniaturizador.generar_fondo_miniatura_con_dalle3(prompt_img, openai_key, ruta_fondo)
+            
+        if not exito_fondo:
+            registrar_log("⏳ Creando ilustración de fondo GRATIS con FLUX.1 (Pollinations)...")
+            exito_fondo = miniaturizador.generar_fondo_miniatura_gratis_pollinations(prompt_img, ruta_fondo)
+            
+        if not exito_fondo:
+            registrar_log("⚠️ La generación gratuita de miniaturas falló. El video continuará su creación sin detenerse.")
+            registrar_log("💡 Podrás diseñar y generar la miniatura del video manualmente en la sección de abajo cuando culmine.")
+            
+        if exito_fondo:
+            # Descarga e imitación de la miniatura competidora si se proporciona el ID
+            layout_config = None
+            if req.competidor_video_id:
+                ruta_comp = os.path.join(dir_salida, "miniatura_competidora.jpg")
+                registrar_log(f"📥 Descargando miniatura competidora (Video ID: {req.competidor_video_id})...")
+                if miniaturizador.descargar_miniatura_competidor(req.competidor_video_id, ruta_comp):
+                    if openai_key:
+                        registrar_log("🧠 Analizando diseño de la miniatura competidora con OpenAI GPT-4o...")
+                        layout_config = miniaturizador.analizar_miniatura_con_openai(ruta_comp, openai_key)
+                    if not layout_config:
+                        registrar_log("🧠 Analizando diseño de la miniatura competidora con Gemini Vision...")
+                        layout_config = miniaturizador.analizar_miniatura_con_gemini(ruta_comp, API_KEY)
+                    
+                    if layout_config:
+                        registrar_log(f"✅ Análisis completado. Estructura copiada: {json.dumps(layout_config)}")
+                    else:
+                        registrar_log("⚠️ Falló análisis de diseño, usando diseño balanceado por defecto.")
                 else:
-                    registrar_log("⚠️ Falló análisis de Gemini Vision, usando diseño balanceado por defecto.")
-            else:
-                registrar_log("⚠️ No se pudo descargar la miniatura competidora, usando valores estándar.")
-                
-        # Componer las 3 opciones de miniatura clickbait para que el usuario elija
-        registrar_log("🖼️ Generando 3 opciones de diseño de miniaturas clickbait...")
-        
-        elem_clave = datos_video.get("elemento_clave", "")
-        
-        # Opción 1: Diseño de la Competencia (o Clásico Médico si no hay competidor)
-        layout_opcion1 = layout_config if layout_config else {
-            "texto_posicion_x": "left",
-            "texto_alineacion": "left",
-            "color_primario": "yellow",
-            "color_secundario": "white",
-            "inclinacion_grados": -3,
-            "sujeto_posicion_x": "right",
-            "tiene_banner": True
-        }
-        ruta_opc1 = os.path.join(dir_salida, "miniatura_opcion1.png")
-        miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc1, texto_click, layout_opcion1, elem_clave, url_runpod_interna)
-        
-        # Opción 2: Alerta Roja (Con Banner Diagonal Llamativo)
-        layout_opcion2 = {
-            "texto_posicion_x": "left",
-            "texto_alineacion": "left",
-            "color_primario": "white",
-            "color_secundario": "yellow",
-            "inclinacion_grados": 3,
-            "sujeto_posicion_x": "right",
-            "tiene_banner": True
-        }
-        ruta_opc2 = os.path.join(dir_salida, "miniatura_opcion2.png")
-        miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc2, texto_click, layout_opcion2, elem_clave, url_runpod_interna)
-        
-        # Opción 3: Espejo Limpio (Sujeto a la derecha, texto verde/blanco a la izquierda)
-        layout_opcion3 = {
-            "texto_posicion_x": "left",
-            "texto_alineacion": "left",
-            "color_primario": "green",
-            "color_secundario": "white",
-            "inclinacion_grados": 0,
-            "sujeto_posicion_x": "right",
-            "tiene_banner": False
-        }
-        ruta_opc3 = os.path.join(dir_salida, "miniatura_opcion3.png")
-        miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc3, texto_click, layout_opcion3, elem_clave, url_runpod_interna)
-        
-        # Guardar la Opción 1 como la miniatura principal del video
-        shutil.copyfile(ruta_opc1, ruta_minia)
-        registrar_log("✅ 3 opciones de miniatura terminadas exitosamente.")
+                    registrar_log("⚠️ No se pudo descargar la miniatura competidora, usando valores estándar.")
+                    
+            # Componer las 3 opciones de miniatura clickbait para que el usuario elija
+            registrar_log("🖼️ Generando 3 opciones de diseño de miniaturas clickbait...")
+            
+            elem_clave = datos_video.get("elemento_clave", "")
+            
+            # Opción 1: Diseño de la Competencia (o Clásico Médico si no hay competidor)
+            layout_opcion1 = layout_config if layout_config else {
+                "texto_posicion_x": "left",
+                "texto_alineacion": "left",
+                "color_primario": "yellow",
+                "color_secundario": "white",
+                "inclinacion_grados": -3,
+                "sujeto_posicion_x": "right",
+                "tiene_banner": True
+            }
+            ruta_opc1 = os.path.join(dir_salida, "miniatura_opcion1.png")
+            miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc1, texto_click, layout_opcion1, elem_clave, url_runpod_interna)
+            
+            # Opción 2: Alerta Roja (Con Banner Diagonal Diagonal Llamativo)
+            layout_opcion2 = {
+                "texto_posicion_x": "left",
+                "texto_alineacion": "left",
+                "color_primario": "white",
+                "color_secundario": "yellow",
+                "inclinacion_grados": 3,
+                "sujeto_posicion_x": "right",
+                "tiene_banner": True
+            }
+            ruta_opc2 = os.path.join(dir_salida, "miniatura_opcion2.png")
+            miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc2, texto_click, layout_opcion2, elem_clave, url_runpod_interna)
+            
+            # Opción 3: Espejo Limpio (Sujeto a la derecha, texto verde/blanco a la izquierda)
+            layout_opcion3 = {
+                "texto_posicion_x": "left",
+                "texto_alineacion": "left",
+                "color_primario": "green",
+                "color_secundario": "white",
+                "inclinacion_grados": 0,
+                "sujeto_posicion_x": "right",
+                "tiene_banner": False
+            }
+            ruta_opc3 = os.path.join(dir_salida, "miniatura_opcion3.png")
+            miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_opc3, texto_click, layout_opcion3, elem_clave, url_runpod_interna)
+            
+            # Guardar la Opción 1 como la miniatura principal del video
+            shutil.copyfile(ruta_opc1, ruta_minia)
+            registrar_log("✅ 3 opciones de miniatura terminadas exitosamente.")
         
         # 4. ENSAMBLAJE FINAL DEL VIDEO
         estado_proceso["etapa"] = "Mezcla de video y audio"
@@ -1248,7 +1478,12 @@ def proceso_background_producir(req: ProducirRequest):
                         secondary_color=req.sub_color_fondo,
                         effect_type=req.sub_animacion,
                         rate=req.velocidad_voz,
-                        pitch=req.tono_voz
+                        pitch=req.tono_voz,
+                        max_words_per_line=max_words_val,
+                        font_size=req.sub_size,
+                        outline_thickness=req.sub_outline,
+                        alignment=align_val,
+                        margin_v=req.sub_margin_v
                     )
                 )
                 
@@ -1266,10 +1501,19 @@ def proceso_background_producir(req: ProducirRequest):
                 )
                 
                 # Generar miniatura en idioma destino
-                ruta_minia_lang = os.path.join(dir_salida, f"miniatura_final_{lang}.png")
-                texto_click_lang = datos_video_lang.get("texto_miniatura", "")
-                registrar_log(f"🖼️ Generando miniatura clickbait en ({lang.upper()})...")
-                miniaturizador.aplicar_estilo_miniatura_avanzado(ruta_fondo, ruta_minia_lang, texto_click_lang, layout_opcion1)
+                if exito_fondo:
+                    ruta_minia_lang = os.path.join(dir_salida, f"miniatura_final_{lang}.png")
+                    texto_click_lang = datos_video_lang.get("texto_miniatura", "")
+                    elem_clave_lang = datos_video_lang.get("elemento_clave", elem_clave)
+                    registrar_log(f"🖼️ Generando miniatura clickbait en ({lang.upper()})...")
+                    miniaturizador.aplicar_estilo_miniatura_avanzado(
+                        ruta_fondo, 
+                        ruta_minia_lang, 
+                        texto_click_lang, 
+                        layout_opcion1, 
+                        elem_clave_lang, 
+                        url_runpod_interna
+                    )
                 
                 registrar_log(f"✅ Clonación a {lang.upper()} completada con éxito.")
                 
