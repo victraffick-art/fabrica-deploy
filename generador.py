@@ -93,14 +93,14 @@ def enviar_prompt_a_comfyui(server_url, prompt_texto, index_clip, seed=42, width
                 "model": "Wan2.1/wan2.1_t2v_1.3B_bf16.safetensors",
                 "base_precision": "bf16",
                 "quantization": "disabled",
-                "load_device": "gpu",
+                "load_device": "main_device",
                 "block_swap_args": ["10", 0]
             }, 
             "class_type": "WanVideoModelLoader"
         },
         "2": {
             "inputs": {
-                "positive_prompt": f"Cinematic B-roll, medical video essay style, {prompt_texto}, 4k, hyperrealistic, slow motion.", 
+                "positive_prompt": prompt_texto, 
                 "negative_prompt": "blurry, low quality, distorted, bad anatomy, text, watermark, vertical, static, ugly",
                 "device": "gpu",
                 "t5": ["3", 0]
@@ -171,11 +171,11 @@ def enviar_prompt_a_comfyui(server_url, prompt_texto, index_clip, seed=42, width
         },
         "10": {
             "inputs": {
-                "blocks_to_swap": 40,
-                "offload_img_emb": True,
-                "offload_txt_emb": True,
+                "blocks_to_swap": 0,
+                "offload_img_emb": False,
+                "offload_txt_emb": False,
                 "use_non_blocking": False,
-                "vace_blocks_to_swap": 15,
+                "vace_blocks_to_swap": 0,
                 "prefetch_blocks": 0,
                 "block_swap_debug": False
             },

@@ -90,9 +90,16 @@ const selectDuracion        = document.getElementById("select-duracion");
 const runpodUrl             = document.getElementById("runpod-url");
 const selectVoz             = document.getElementById("select-voz");
 const selectEstilo          = document.getElementById("select-estilo");
+const customEstiloContainer = document.getElementById("custom-estilo-container");
+const inputCustomEstilo     = document.getElementById("input-custom-estilo");
 const selectOrientacion     = document.getElementById("select-orientacion");
 const selectMusica          = document.getElementById("select-musica");
 const competidorVideoIdInput = document.getElementById("competidor-video-id");
+const competitorStyleContainer = document.getElementById("competitor-style-container");
+const competitorStyleLoading = document.getElementById("competitor-style-loading");
+const competitorStyleResult  = document.getElementById("competitor-style-result");
+const competitorStyleBadge   = document.getElementById("competitor-style-badge");
+const competitorStyleExplanation = document.getElementById("competitor-style-explanation");
 const btnProducir           = document.getElementById("btn-producir");
 const progressSpinner       = document.getElementById("progress-spinner");
 const progressEtapa         = document.getElementById("progress-etapa");
@@ -287,6 +294,14 @@ async function pollStatus() {
             const b1 = document.getElementById("download-opc1-btn");
             if (b1) b1.style.display = "inline-flex";
             if (btnRegenerarMinia) btnRegenerarMinia.style.display = "inline-block";
+            
+            // Activar botón para abrir carpeta de resultados locales con animación de pulso
+            const btnAbrir = document.getElementById("btn-abrir-carpeta");
+            if (btnAbrir) {
+                btnAbrir.disabled = false;
+                btnAbrir.classList.add("ready");
+                btnAbrir.innerHTML = "📂 ABRIR CARPETA DE RESULTADOS (¡LISTO!)";
+            }
         }
     } catch (e) {
         console.error("Error en polling:", e);
@@ -439,11 +454,41 @@ const cerrarModal = () => { modalGuion.style.display = "none"; };
 btnCloseModal.addEventListener("click", cerrarModal);
 btnCancelarGuion.addEventListener("click", cerrarModal);
 
+// Abrir carpeta de resultados en el Explorador de Archivos local
+const btnAbrirCarpeta = document.getElementById("btn-abrir-carpeta");
+if (btnAbrirCarpeta) {
+    btnAbrirCarpeta.addEventListener("click", async () => {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/abrir_carpeta`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                mostrarToast(`📂 ${data.message || "Carpeta abierta"}`);
+            } else {
+                const err = await res.json();
+                alert(`Error al abrir carpeta: ${err.detail || "Error desconocido"}`);
+            }
+        } catch (e) {
+            alert("Error al conectar con el servidor para abrir la carpeta.");
+        }
+    });
+}
+
 // ─── PRODUCIR ──────────────────────────────────────────────────────────────
 btnProducir.addEventListener("click", async () => {
     datosClonados = { es: null, en: null, pt: null };
     idiomaActual  = 'es';
     activeFolderName = "";
+    
+    // Desactivar botón de abrir carpeta y remover animación
+    const btnAbrir = document.getElementById("btn-abrir-carpeta");
+    if (btnAbrir) {
+        btnAbrir.disabled = true;
+        btnAbrir.classList.remove("ready");
+        btnAbrir.innerHTML = "📂 CARPETA DE RESULTADOS (ESPERANDO GENERACIÓN)";
+    }
     
     ["btn-lang-en","btn-lang-pt","btn-prev-en","btn-prev-pt"].forEach(id => {
         const el = document.getElementById(id);
@@ -481,6 +526,7 @@ btnProducir.addEventListener("click", async () => {
         sub_max_words:   document.getElementById("select-sub-max-words").value,
         sub_margin_v:    parseInt(document.getElementById("select-sub-margin-v").value) || 150,
         video_quality:   document.getElementById("select-video-quality").value,
+        custom_estilo_prompt: inputCustomEstilo ? inputCustomEstilo.value.trim() : null,
         tono_voz:        document.getElementById("select-sub-pitch").value,
         velocidad_voz:   document.getElementById("select-sub-rate").value,
         volumen_musica:  parseFloat(document.getElementById("select-volumen-musica").value),
@@ -542,11 +588,14 @@ function actualizarSubtitulosLivePreview() {
     };
     const colInactiveHex = cssColorMap[colorInact] || "#ffffff";
     
+    const simScreen = document.getElementById("video-simulator-screen");
+    const wSim = simScreen ? simScreen.clientWidth : 400;
+    
     previewContainer.style.fontFamily   = `"${font}", "Arial Black", sans-serif`;
-    previewContainer.style.fontSize     = `${sizeVal * 0.5}px`;
+    previewContainer.style.fontSize     = `${sizeVal * (wSim / 1280)}px`;
     previewContainer.style.justifyContent = alignVal.includes("Centrado") ? "center"
         : alignVal.includes("Izquierda") ? "flex-start" : "flex-end";
-    previewContainer.style.bottom       = `${marginVVal * 0.12}px`;
+    previewContainer.style.bottom       = `${marginVVal * (wSim / 1280)}px`;
     
     const out = parseInt(outlineVal);
     let shadowStr = "";
@@ -609,8 +658,74 @@ function actualizarCompetitorThumbPreview() {
     if (id && id.length >= 8) {
         img.src = `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
         container.style.display = "block";
+        analizarEstiloCompetidor(id);
     } else {
         container.style.display = "none";
+        if (competitorStyleContainer) competitorStyleContainer.style.display = "none";
+    }
+}
+
+async function analizarEstiloCompetidor(id) {
+    if (!competitorStyleLoading || !competitorStyleResult || !competitorStyleBadge || !competitorStyleExplanation) return;
+    
+    competitorStyleLoading.style.display = "block";
+    competitorStyleResult.style.display = "none";
+    
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/competidor/detectar_estilo`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ competidor_video_id: id })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.status === "ok" && data.estilo) {
+                competitorStyleLoading.style.display = "none";
+                competitorStyleResult.style.display = "block";
+                
+                const nombresEstilo = {
+                    "realistic": "Documental / Realista (Fotorrealista)",
+                    "3d pixar": "Animación 3D (Pixar/Claymation)",
+                    "illustration": "Diseño Plano / Vectorial 2D",
+                    "anime": "Estilo Anime (Dibujo 2D)",
+                    "cyberpunk": "Cyberpunk Holográfico",
+                    "custom": "Personalizado por IA"
+                };
+                
+                competitorStyleBadge.innerText = nombresEstilo[data.estilo.toLowerCase()] || data.estilo.toUpperCase();
+                competitorStyleExplanation.innerText = data.explicacion || "";
+                
+                if (selectEstilo) {
+                    let encontrado = false;
+                    for (let i = 0; i < selectEstilo.options.length; i++) {
+                        if (selectEstilo.options[i].value.toLowerCase() === data.estilo.toLowerCase()) {
+                            selectEstilo.selectedIndex = i;
+                            encontrado = true;
+                            break;
+                        }
+                    }
+                    if (encontrado) {
+                        selectEstilo.dispatchEvent(new Event("change"));
+                    }
+                    
+                    if (data.estilo.toLowerCase() === "custom" && data.custom_prompt) {
+                        if (inputCustomEstilo) {
+                            inputCustomEstilo.value = data.custom_prompt;
+                        }
+                        if (customEstiloContainer) {
+                            customEstiloContainer.style.display = "block";
+                        }
+                    }
+                }
+            } else {
+                competitorStyleLoading.style.display = "none";
+            }
+        } else {
+            competitorStyleLoading.style.display = "none";
+        }
+    } catch (e) {
+        console.error("Error al analizar estilo competidor:", e);
+        if (competitorStyleLoading) competitorStyleLoading.style.display = "none";
     }
 }
 
@@ -1391,6 +1506,19 @@ async function init() {
         actualizarAspectoSimulador();
     }
 
+    if (selectEstilo) {
+        selectEstilo.addEventListener("change", () => {
+            if (selectEstilo.value.toLowerCase() === "custom") {
+                if (customEstiloContainer) customEstiloContainer.style.display = "block";
+            } else {
+                if (customEstiloContainer) customEstiloContainer.style.display = "none";
+            }
+        });
+        if (selectEstilo.value.toLowerCase() === "custom") {
+            if (customEstiloContainer) customEstiloContainer.style.display = "block";
+        }
+    }
+
     // Cerrar modal stats al pulsar ESC
     document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
@@ -1399,6 +1527,72 @@ async function init() {
             if (modalGuion && modalGuion.style.display === "flex") cerrarModal();
         }
     });
+
+    // ─── CONTROLADOR DEL PROBADOR DE VOZ (PREVIEW DE AUDIO) ─────────────────────
+    const btnPreviewVoz = document.getElementById("btn-preview-voz");
+    const previewVozContainer = document.getElementById("preview-voz-container");
+    const previewVozStatus = document.getElementById("preview-voz-status");
+    const audioPreviewVoz = document.getElementById("audio-preview-voz");
+
+    if (btnPreviewVoz) {
+        btnPreviewVoz.addEventListener("click", async () => {
+            const selectVozElem = document.getElementById("select-voz");
+            const voz = selectVozElem ? selectVozElem.value : "g-es-US-Neural2-A";
+            const pitch = document.getElementById("select-sub-pitch")?.value || "+0Hz";
+            const rate = document.getElementById("select-sub-rate")?.value || "+0%";
+            
+            btnPreviewVoz.disabled = true;
+            btnPreviewVoz.innerText = "⏳ Generando...";
+            if (previewVozContainer) previewVozContainer.style.display = "block";
+            if (previewVozStatus) {
+                previewVozStatus.innerText = "🎙️ Sintetizando muestra de voz...";
+                previewVozStatus.style.display = "block";
+                previewVozStatus.style.color = "var(--accent-color)";
+            }
+            if (audioPreviewVoz) audioPreviewVoz.style.display = "none";
+            
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/voz/preview`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        voz: voz,
+                        tono_voz: pitch,
+                        velocidad_voz: rate
+                    })
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.status === "ok" && data.audio_url) {
+                        if (previewVozStatus) previewVozStatus.innerText = "🔊 Muestra de Voz Lista (Escuchar abajo):";
+                        if (audioPreviewVoz) {
+                            audioPreviewVoz.pause();
+                            audioPreviewVoz.currentTime = 0;
+                            audioPreviewVoz.src = `${API_BASE_URL}${data.audio_url}`;
+                            audioPreviewVoz.style.display = "block";
+                            audioPreviewVoz.load();
+                            audioPreviewVoz.play().catch(() => {});
+                        }
+                    }
+                } else {
+                    const err = await res.json();
+                    if (previewVozStatus) {
+                        previewVozStatus.innerText = `⚠️ ${err.detail || "No se pudo generar la muestra."}`;
+                        previewVozStatus.style.color = "#ef4444";
+                    }
+                }
+            } catch (e) {
+                if (previewVozStatus) {
+                    previewVozStatus.innerText = "⚠️ Error de conexión con el servidor local.";
+                    previewVozStatus.style.color = "#ef4444";
+                }
+            } finally {
+                btnPreviewVoz.disabled = false;
+                btnPreviewVoz.innerText = "🔊 Probar Voz";
+            }
+        });
+    }
 
     const online = await verificarConexion();
     if (online) {

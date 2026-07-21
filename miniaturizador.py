@@ -616,5 +616,124 @@ def generar_fondo_miniatura_gratis_pollinations(prompt, ruta_salida):
         print(f"⚠️ Error al conectar con Pollinations: {e}")
     return False
 
+def descargar_fragmento_video(video_id, ruta_salida_mp4):
+    """
+    Descarga únicamente los primeros 10 segundos del video de YouTube en baja calidad.
+    """
+    import subprocess
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    print(f"📡 Descargando fragmento de 10s del video competidor {video_id}...")
+    
+    # yt-dlp comando para descargar los primeros 10 segundos en la peor calidad (pequeño y rápido)
+    cmd = [
+        "yt-dlp",
+        "--download-sections", "*0-10",
+        "-f", "worst",
+        "-o", ruta_salida_mp4,
+        url
+    ]
+    try:
+        # Ejecutar de forma síncrona
+        resultado = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if resultado.returncode == 0 and os.path.exists(ruta_salida_mp4):
+            print(f"✅ Fragmento de video descargado exitosamente en: {ruta_salida_mp4}")
+            return True
+        else:
+            print(f"❌ Falló la descarga del fragmento con yt-dlp (Código {resultado.returncode}): {resultado.stderr}")
+    except Exception as e:
+        print(f"⚠️ Error al ejecutar yt-dlp: {e}")
+    return False
+
+def extraer_fotogramas(ruta_video, directorio_salida):
+    """
+    Extrae fotogramas fijos del video usando FFmpeg.
+    """
+    import subprocess
+    print(f"🎞️ Extrayendo fotogramas de {ruta_video}...")
+    
+    # Extraer una captura cada 4 segundos (a 15fps, select='not(mod(n,60))')
+    # Guardar en directorio_salida como frame_001.jpg, frame_002.jpg
+    patron_salida = os.path.join(directorio_salida, "frame_%03d.jpg")
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i", ruta_video,
+        "-vf", "select=not(mod(n,60))",
+        "-vsync", "vfr",
+        "-q:v", "2",
+        patron_salida
+    ]
+    try:
+        resultado = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if resultado.returncode == 0:
+            # Buscar archivos creados
+            archivos = [os.path.join(directorio_salida, f) for f in os.listdir(directorio_salida) if f.startswith("frame_") and f.endswith(".jpg")]
+            archivos.sort()
+            print(f"✅ Fotogramas extraídos: {archivos}")
+            return archivos
+        else:
+            print(f"❌ FFmpeg falló (Código {resultado.returncode}): {resultado.stderr}")
+    except Exception as e:
+        print(f"⚠️ Error al ejecutar FFmpeg para extraer fotogramas: {e}")
+    return []
+
+def analizar_estilo_video_con_gemini(rutas_imagenes, api_key):
+    """
+    Envía los fotogramas a Gemini Vision para clasificar el estilo del video.
+    """
+    try:
+        parts = []
+        prompt = (
+            "Analiza las siguientes capturas reales del contenido de un video de YouTube e identifica cuál de los siguientes estilos visuales/artísticos de video representa mejor el estilo visual general de la producción:\n"
+            "1. 'realistic' (si parece metraje real, de stock, documental, clínico o fotorrealista)\n"
+            "2. '3d pixar' (si parece animación 3D digital, estilo Pixar/Disney, modelado 3D cute/arcilla)\n"
+            "3. 'illustration' (si parece ilustración vectorial 2D, diseño plano minimalista, gráficos/infografías)\n"
+            "4. 'anime' (si parece estilo de dibujo anime/manga o cell shading)\n"
+            "5. 'cyberpunk' (si es futurista, con hologramas, luces de neón y gráficos de interfaz de usuario de alta tecnología)\n"
+            "6. 'custom' (si es un estilo completamente diferente como dibujo a lápiz, acuarelas pintadas, cómic retro, stop-motion, etc.)\n\n"
+            "Responde estrictamente en formato JSON con la siguiente estructura:\n"
+            "{\n"
+            "  \"estilo\": \"realistic\" o \"3d pixar\" o \"illustration\" o \"anime\" o \"cyberpunk\" o \"custom\",\n"
+            "  \"explicacion\": \"Breve frase en español explicando el porqué de la detección (máximo 15 palabras)\",\n"
+            "  \"custom_prompt\": \"Si clasificaste como 'custom', escribe un prompt en inglés muy detallado y conciso de 1 línea para recrear este estilo en un modelo de video (ej. 'Retro vintage comic book illustration, hand-drawn sketch, detailed ink lines, {}'). Si no es custom, este campo debe ser una cadena vacía.\"\n"
+            "}"
+        )
+        parts.append({"text": prompt})
+        
+        for ruta in rutas_imagenes:
+            if os.path.exists(ruta):
+                with open(ruta, "rb") as f:
+                    img_data = base64.b64encode(f.read()).decode("utf-8")
+                parts.append({
+                    "inlineData": {
+                        "mimeType": "image/jpeg",
+                        "data": img_data
+                    }
+                })
+        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"parts": parts}],
+            "generationConfig": {
+                "responseMimeType": "application/json"
+            }
+        }
+        
+        res = requests.post(url, json=payload, timeout=20)
+        if res.status_code == 200:
+            data = res.json()
+            if "candidates" in data and len(data["candidates"]) > 0:
+                texto_json = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                if texto_json.startswith("```"):
+                    texto_json = texto_json.split("\n", 1)[1].rsplit("\n", 1)[0].strip()
+                return json.loads(texto_json)
+            else:
+                print(f"❌ Respuesta vacía de Gemini: {data}")
+        else:
+            print(f"❌ Error HTTP de Gemini {res.status_code}: {res.text}")
+    except Exception as e:
+        print(f"⚠️ Error general al analizar estilo de video con Gemini: {e}")
+    return None
+
 if __name__ == "__main__":
     aplicar_estilo_miniatura_avanzado("fondo_prueba.png", "miniatura_prueba.png", "AJO EN AYUNAS: ¡EXPLOTA TU SALUD!")

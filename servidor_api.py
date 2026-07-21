@@ -102,7 +102,8 @@ class ProducirRequest(BaseModel):
     tema: str
     url_runpod: str
     voz: str = "es-MX-JorgeNeural"
-    estilo_video: str = "Realistic" # Realistic, 3D Pixar, Illustration, Anime, Cyberpunk
+    estilo_video: str = "Realistic" # Realistic, 3D Pixar, Illustration, Anime, Cyberpunk, Custom
+    custom_estilo_prompt: Optional[str] = None
     duracion_min: float = 1.0 # 1.0 para Shorts, 5.0, 10.0
     orientacion: str = "horizontal" # horizontal, vertical
     musica_genero: Optional[str] = None # Lofi, Epic, Medical, etc.
@@ -201,6 +202,106 @@ def clear_status():
     estado_proceso["esperando_confirmacion_runpod"] = False
     estado_proceso["respuesta_confirmacion_runpod"] = None
     return {"status": "ok"}
+
+class PreviewVozRequest(BaseModel):
+    voz: str = "es-MX-JorgeNeural"
+    tono_voz: str = "+0Hz"
+    velocidad_voz: str = "+0%"
+    texto_muestra: Optional[str] = None
+
+@app.post("/api/voz/preview")
+def api_preview_voz(req: PreviewVozRequest):
+    try:
+        texto = req.texto_muestra.strip() if req.texto_muestra else "Hola, bienvenido a tu canal de salud. Este es un ejemplo de cómo se escuchará esta voz en tus videos."
+        dir_previews = os.path.join(outputs_dir, "preview_voces")
+        os.makedirs(dir_previews, exist_ok=True)
+        
+        safe_voz = "".join([c if c.isalnum() else "_" for c in req.voz])
+        safe_pitch = "".join([c if c.isalnum() else "_" for c in req.tono_voz])
+        safe_rate = "".join([c if c.isalnum() else "_" for c in req.velocidad_voz])
+        filename = f"preview_{safe_voz}_{safe_pitch}_{safe_rate}.mp3"
+        ruta_mp3 = os.path.join(dir_previews, filename)
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(
+                locutor.generar_muestra_voz(texto, ruta_mp3, voz=req.voz, rate=req.velocidad_voz, pitch=req.tono_voz)
+            )
+        finally:
+            loop.close()
+            
+        import time
+        t = int(time.time())
+        return {
+            "status": "ok",
+            "audio_url": f"/outputs/preview_voces/{filename}?t={t}"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al generar muestra de voz: {str(e)}")
+
+class DetectarEstiloRequest(BaseModel):
+    competidor_video_id: str
+
+@app.post("/api/competidor/detectar_estilo")
+def api_detectar_estilo_competidor(req: DetectarEstiloRequest):
+    video_id = req.competidor_video_id.strip()
+    if not video_id:
+        raise HTTPException(status_code=400, detail="ID de video competidor vacío.")
+        
+    temp_dir = os.path.join(outputs_dir, "temp_style_analysis")
+    os.makedirs(temp_dir, exist_ok=True)
+    video_path = os.path.join(temp_dir, f"{video_id}.mp4")
+    
+    try:
+        # 1. Descargar fragmento de 10 segundos
+        descargado = miniaturizador.descargar_fragmento_video(video_id, video_path)
+        if not descargado:
+            raise HTTPException(status_code=500, detail="No se pudo descargar el fragmento del video.")
+            
+        # 2. Extraer fotogramas
+        frames = miniaturizador.extraer_fotogramas(video_path, temp_dir)
+        if not frames:
+            raise HTTPException(status_code=500, detail="No se pudieron extraer fotogramas del fragmento.")
+            
+        # 3. Analizar con Gemini Vision
+        resultado = miniaturizador.analizar_estilo_video_con_gemini(frames, API_KEY)
+        
+        # Limpieza
+        if os.path.exists(video_path):
+            try: os.remove(video_path)
+            except: pass
+        for f in frames:
+            if os.path.exists(f):
+                try: os.remove(f)
+                except: pass
+                
+        if resultado and "estilo" in resultado:
+            return {
+                "status": "ok",
+                "estilo": resultado["estilo"],
+                "explicacion": resultado["explicacion"],
+                "custom_prompt": resultado.get("custom_prompt", "")
+            }
+        else:
+            return {
+                "status": "error",
+                "estilo": "realistic",
+                "explicacion": "No se pudo detectar el estilo. Usando fotorrealista por defecto.",
+                "custom_prompt": ""
+            }
+    except Exception as e:
+        # Limpieza ante error
+        if os.path.exists(video_path):
+            try: os.remove(video_path)
+            except: pass
+        try:
+            for f in os.listdir(temp_dir):
+                if f.startswith("frame_") and f.endswith(".jpg"):
+                    os.remove(os.path.join(temp_dir, f))
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"Error al analizar el estilo del competidor: {str(e)}")
 
 class NichoBuscarRequest(BaseModel):
     query: str
@@ -544,7 +645,7 @@ def traducir_guion_con_gemini(datos_sp, idioma_destino):
         res = req_http.post(url, headers=headers, data=json.dumps(payload)).json()
         if 'candidates' in res and len(res['candidates']) > 0:
             texto_json = res['candidates'][0]['content']['parts'][0]['text']
-            return json.loads(texto_json)
+            return json.loads(texto_json, strict=False)
     except Exception as e:
         print(f"⚠️ Error al traducir guion a {idioma_destino}: {e}")
     return None
@@ -692,16 +793,16 @@ def api_redactar(req: RedactarRequest):
         f'  "titulos_miniatura": ["Texto Corto 1", "Texto Corto 2", "Texto Corto 3"],\n'
         f'  "elemento_clave": "Nombre simple en inglés del ingrediente o elemento natural principal (ej: garlic, rosemary, date, apple, olive oil) para el fotomontaje",\n'
         f'  "prompt_miniatura": "Prompt en inglés muy detallado para generar UNICAMENTE la ilustración o foto de fondo macro. Debe enfocarse en el elemento u organo (ej: a giant human eye with glowing lens, or a close-up of a diseased liver, or a macro view of cells), cinematic lighting, dark background, ultra high detail, photorealistic, 8k. IMPORTANTE: No incluyas doctores, ni personas, ni textos en este prompt, ya que el sistema los recortara y pegara después.",\n'
-        f'  "guion_locucion": "Texto completo y corrido que leerá el narrador sin anotaciones entre corchetes o paréntesis...",\n'
+        f'  "guion_locucion": "Texto completo adaptado para locución neural expresiva. REGLA OBLIGATORIA DE PUNTUACIÓN EMOCIONAL: Para que las voces gratuitas de IA suenen extremadamente humanas y expresivas, debes incluir frecuentemente signos de exclamación (¡!), preguntas de suspenso (¿?), puntos suspensivos (...) para pausas dramáticas de respiración, comas estratégicas para pausas naturales y palabras clave en MAYÚSCULAS para fuerza de voz. No incluyas acotaciones entre corchetes o paréntesis.",\n'
         f'  "escenas": [\n'
         f'     {{\n'
         f'       "texto_escena": "Fracción del guion correspondiente a esta escena",\n'
-        f'       "prompt_broll": "Prompt visual detallado en inglés para generar video b-roll médico/salud en ComfyUI"\n'
+        f'       "prompt_broll": "Prompt visual detallado en inglés para generar video B-roll en Wan Video. REGLAS CRÍTICAS: 1) COHERENCIA CONTEXTUAL DIRECTA: El prompt debe ilustrar de forma lógica y literal el contenido de \'texto_escena\' (ej: si el texto habla de arrugas, describe a una mujer de 50 años tocando suavemente las líneas de expresión en su rostro frente a un espejo; si habla de várices o circulación, describe un plano medio de piernas cansadas o venas inflamadas; si habla de remedios, muestra a alguien sirviendo una infusión caliente de plantas). 2) DETALLE Y ACCIÓN FÍSICA: Describe sujetos, ángulos, iluminación y movimientos continuos con verbos activos (ej: \'close-up shot of...\', \'slow motion movement of...\', \'gently massaging...\'). Evita conceptos abstractos, pantallas divididas (split screen), montajes, logos o textos."\n'
         f'     }}\n'
         f'  ]\n'
         f"}}\n\n"
         f"Asegura que el campo 'escenas' tenga exactamente unas {escenas_objetivo} escenas distribuidas a lo largo del guion, "
-        f"con prompts visuales en inglés muy precisos para Wan Video."
+        f"con prompts visuales en inglés altamente coherentes, detallados y dinámicos para Wan Video."
     )
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={API_KEY}"
@@ -735,7 +836,7 @@ def api_redactar(req: RedactarRequest):
                 registrar_log(f"⚠️ Respuesta inesperada de Gemini: {texto_json[:200]}")
                 raise HTTPException(status_code=500, detail=f"Gemini devolvió texto no-JSON: {texto_json[:200]}")
                 
-            datos = json.loads(texto_json)
+            datos = json.loads(texto_json, strict=False)
             
             # Limpiar y acortar tags a un máximo de 480 caracteres (para cumplir con el límite de 500 de YouTube)
             tags_filtrados = []
@@ -1184,25 +1285,18 @@ def proceso_background_producir(req: ProducirRequest):
                 url_runpod_interna = "http://127.0.0.1:8188"
                 registrar_log("ℹ️ Entorno en la nube detectado. Redirigiendo llamadas internas de ComfyUI a 127.0.0.1:8188 para mayor velocidad.")
         
-        # Mapeo de resolución y pasos según calidad
+        # Mapeo de resolución nativa óptima para evitar deformaciones del modelo Wan Video
+        if req.orientacion == "vertical":
+            width, height = 480, 832
+        else:
+            width, height = 832, 480
+
         if req.video_quality == "Rápido":
             pasos = 15
-            if req.orientacion == "vertical":
-                width, height = 320, 576
-            else:
-                width, height = 576, 320
         elif req.video_quality == "Equilibrado":
             pasos = 20
-            if req.orientacion == "vertical":
-                width, height = 416, 720
-            else:
-                width, height = 720, 416
         else:  # Alta Calidad
             pasos = 30
-            if req.orientacion == "vertical":
-                width, height = 480, 832
-            else:
-                width, height = 832, 480
         registrar_log(f"🎬 Calidad seleccionada: {req.video_quality} -> Resolucion: {width}x{height}, Pasos: {pasos}")
         
         escenas = datos_video["escenas"]
@@ -1216,7 +1310,14 @@ def proceso_background_producir(req: ProducirRequest):
             "anime": "Modern anime visual style, scientific concept, {}, hand-drawn cell animation, medical theme",
             "cyberpunk": "Cyberpunk medical hologram, neon glow, {}, futuristic UI graphics, 8k resolution"
         }
-        formato_prompt = estilos_prompt_map.get(req.estilo_video.lower(), estilos_prompt_map["realistic"])
+        
+        if req.estilo_video.lower() == "custom" and req.custom_estilo_prompt:
+            formato_prompt = req.custom_estilo_prompt
+            if "{}" not in formato_prompt:
+                formato_prompt = formato_prompt + ", {}"
+            registrar_log(f"🎨 Usando Estilo Personalizado por IA: {formato_prompt}")
+        else:
+            formato_prompt = estilos_prompt_map.get(req.estilo_video.lower(), estilos_prompt_map["realistic"])
         
         # ── PRE-CHECK: Verificar conectividad con ComfyUI antes de encolar ──
         registrar_log(f"🔌 Verificando conectividad con ComfyUI en: {url_runpod_interna}...")
@@ -1419,23 +1520,70 @@ def proceso_background_producir(req: ProducirRequest):
         if req.musica_genero:
             genero_clean = req.musica_genero.lower().strip()
             musica_posible = os.path.join(directorio_actual, f"musica_{genero_clean}.mp3")
+            
+            # Descarga automática si no existe
+            if not os.path.exists(musica_posible) or os.path.getsize(musica_posible) < 10000:
+                registrar_log(f"📥 Descargando pista de música '{req.musica_genero}' desde internet...")
+                try:
+                    import urllib.request
+                    urls_map = {
+                        "lofi": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
+                        "epic": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+                        "medical": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
+                    }
+                    url_descarga = urls_map.get(genero_clean, "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3")
+                    urllib.request.urlretrieve(url_descarga, musica_posible)
+                    registrar_log(f"✅ Música '{os.path.basename(musica_posible)}' descargada exitosamente.")
+                except Exception as e:
+                    registrar_log(f"⚠️ No se pudo descargar la música de fondo: {e}")
+            
             if os.path.exists(musica_posible):
                 ruta_musica = musica_posible
                 registrar_log(f"🎵 Integrando pista de música de fondo: {os.path.basename(musica_posible)}")
             else:
                 musica_fallback = os.path.join(directorio_actual, "musica.mp3")
+                # Descarga fallback si no existe
+                if not os.path.exists(musica_fallback) or os.path.getsize(musica_fallback) < 10000:
+                    try:
+                        import urllib.request
+                        urllib.request.urlretrieve("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3", musica_fallback)
+                    except:
+                        pass
                 if os.path.exists(musica_fallback):
                     ruta_musica = musica_fallback
                     registrar_log("ℹ️ No se encontró música del género, usando musica.mp3 por defecto.")
         
         if not ruta_musica:
             musica_fallback = os.path.join(directorio_actual, "musica.mp3")
+            if not os.path.exists(musica_fallback) or os.path.getsize(musica_fallback) < 10000:
+                registrar_log("📥 Descargando música de fondo por defecto (musica.mp3)...")
+                try:
+                    import urllib.request
+                    urllib.request.urlretrieve("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3", musica_fallback)
+                    registrar_log("✅ Música por defecto descargada.")
+                except Exception as e:
+                    registrar_log(f"⚠️ No se pudo descargar la música por defecto: {e}")
+            
             if os.path.exists(musica_fallback):
                 ruta_musica = musica_fallback
                 registrar_log("ℹ️ Usando música de fondo por defecto (musica.mp3).")
                 
         # Ensamblar
-        editor.ensamblar_video(ruta_mp3, ruta_ass, ruta_clips, ruta_musica, ruta_salida, orientacion=req.orientacion, volumen_musica=req.volumen_musica)
+        def callback_ffmpeg(pct):
+            estado_proceso["progreso"] = 90 + int(pct * 0.1)
+            if int(pct) % 10 == 0 or pct >= 99.9:
+                registrar_log(f"🎬 Ensamblando video: {pct:.1f}% completado...")
+
+        editor.ensamblar_video(
+            ruta_mp3, 
+            ruta_ass, 
+            ruta_clips, 
+            ruta_musica, 
+            ruta_salida, 
+            orientacion=req.orientacion, 
+            volumen_musica=req.volumen_musica,
+            callback_progreso=callback_ffmpeg
+        )
         
         # 5. CLONACIÓN OPCIONAL A OTROS IDIOMAS
         if req.clonar_idiomas:
@@ -1490,6 +1638,11 @@ def proceso_background_producir(req: ProducirRequest):
                 # Ensamblar video en idioma destino reutilizando los mismos clips de video
                 ruta_salida_lang = os.path.join(dir_salida, f"video_final_{lang}.mp4")
                 registrar_log(f"🎬 Ensamblando video ({lang.upper()}) con FFmpeg...")
+                
+                def callback_ffmpeg_lang(pct):
+                    if int(pct) % 10 == 0 or pct >= 99.9:
+                        registrar_log(f"🎬 Ensamblando video ({lang.upper()}): {pct:.1f}% completado...")
+
                 editor.ensamblar_video(
                     ruta_mp3_lang, 
                     ruta_ass_lang, 
@@ -1497,7 +1650,8 @@ def proceso_background_producir(req: ProducirRequest):
                     ruta_musica, 
                     ruta_salida_lang, 
                     orientacion=req.orientacion, 
-                    volumen_musica=req.volumen_musica
+                    volumen_musica=req.volumen_musica,
+                    callback_progreso=callback_ffmpeg_lang
                 )
                 
                 # Generar miniatura en idioma destino
@@ -1575,6 +1729,33 @@ def api_producir(req: ProducirRequest, background_tasks: BackgroundTasks):
     # Lanzar la producción pesada en segundo plano para que el servidor responda de inmediato
     background_tasks.add_task(proceso_background_producir, req)
     return {"status": "started", "message": "Proceso de producción iniciado en segundo plano."}
+
+@app.post("/api/abrir_carpeta")
+def api_abrir_carpeta():
+    import subprocess
+    import sys
+    
+    # Obtener el directorio de salida del estado global
+    dir_salida = estado_proceso.get("directorio_salida")
+    if not dir_salida or not os.path.exists(dir_salida):
+        dir_salida = outputs_dir
+        
+    try:
+        # Normalizar la ruta para evitar problemas con backslashes en Windows/Shell
+        dir_salida = os.path.abspath(dir_salida)
+        
+        # Abrir el explorador de archivos según la plataforma
+        if sys.platform == "win32":
+            os.startfile(dir_salida)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", dir_salida])
+        else:
+            subprocess.Popen(["xdg-open", dir_salida])
+            
+        nombre_carpeta = os.path.basename(dir_salida)
+        return {"status": "ok", "message": f"Carpeta '{nombre_carpeta}' abierta"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo abrir la carpeta: {str(e)}")
 
 # Servir el frontend estáticamente en la raíz (/) del sitio local
 frontend_dir = os.path.join(directorio_actual, "frontend")

@@ -227,7 +227,15 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
                                         <option value="Illustration">Ilustración Vectorial 2D (Corporativa)</option>
                                         <option value="Anime">Anime Moderno (Cartoon)</option>
                                         <option value="Cyberpunk">Mapeado Holográfico / Cyberpunk</option>
+                                        <option value="Custom">✨ Personalizado (Detectado por IA / Prompt)</option>
                                     </select>
+                                </div>
+                            </div>
+                            
+                            <div class="form-row" id="custom-estilo-container" style="display: none; margin-top: 10px;">
+                                <div class="input-group full" style="width: 100%;">
+                                    <label for="input-custom-estilo" style="color: var(--accent-color); font-weight: bold;">Fórmula de Prompt de Estilo Visual (Usa {} para la escena)</label>
+                                    <input type="text" id="input-custom-estilo" placeholder="Ej: watercolor painting style, {}, artistic medical diagram, clean lighting" style="width: 100%; background: #0f172a; border-color: var(--accent-color); color: white; border-style: dashed; padding: 10px; border-radius: var(--radius-sm); box-sizing: border-box;">
                                 </div>
                             </div>
                             
@@ -251,24 +259,37 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
                             
                             <div class="form-row">
                                 <div class="input-group half">
-                                    <label for="select-voz">Voz del Locutor</label>
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                        <label for="select-voz" style="margin-bottom: 0;">Voz del Locutor</label>
+                                        <button type="button" id="btn-preview-voz" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(220, 38, 38, 0.4)); border: 1px solid rgba(239, 68, 68, 0.5); color: #fff; font-size: 0.75rem; font-weight: bold; padding: 3px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all 0.2s ease;">
+                                            🔊 Probar Voz
+                                        </button>
+                                    </div>
                                     <select id="select-voz">
-                                        <!-- Voces en Español Latino / España (Gratis) -->
-                                        <option value="es-MX-JorgeNeural">(Gratis) Jorge - México [Hombre]</option>
-                                        <option value="es-MX-AlvaroNeural">(Gratis) Álvaro - México [Hombre]</option>
-                                        <option value="es-MX-DaliaNeural">(Gratis) Dalia - México [Mujer]</option>
-                                        <option value="es-ES-AlvaroNeural">(Gratis) Álvaro - España [Hombre]</option>
-                                        <option value="es-ES-ElviraNeural">(Gratis) Elvira - España [Mujer]</option>
-                                        <option value="es-CO-GonzaloNeural">(Gratis) Gonzalo - Colombia [Hombre]</option>
-                                        <option value="es-CO-SalomeNeural">(Gratis) Salomé - Colombia [Mujer]</option>
-                                        <option value="es-AR-TomasNeural">(Gratis) Tomás - Argentina [Hombre]</option>
-                                        <option value="es-AR-ElenaNeural">(Gratis) Elena - Argentina [Mujer]</option>
-                                        <option value="es-US-PalomaNeural">(Gratis) Paloma - EE.UU. [Mujer]</option>
+                                        <!-- Voces Microsoft Edge-TTS (100% Gratis e Instantáneas) -->
+                                        <option value="es-MX-JorgeNeural" selected>🔊 (Gratis) Jorge - México [Hombre Narración]</option>
+                                        <option value="es-ES-AlvaroNeural">🔊 (Gratis) Álvaro - España [Hombre Documental]</option>
+                                        <option value="es-MX-DaliaNeural">🔊 (Gratis) Dalia - México [Mujer Expresiva]</option>
+                                        <option value="es-ES-ElviraNeural">🔊 (Gratis) Elvira - España [Mujer Documental]</option>
+                                        <option value="es-CO-GonzaloNeural">🔊 (Gratis) Gonzalo - Colombia [Hombre Warm]</option>
+                                        <option value="es-CO-SalomeNeural">🔊 (Gratis) Salomé - Colombia [Mujer]</option>
+                                        <option value="es-AR-TomasNeural">🔊 (Gratis) Tomás - Argentina [Hombre]</option>
+                                        <option value="es-AR-ElenaNeural">🔊 (Gratis) Elena - Argentina [Mujer]</option>
+                                        <option value="es-US-PalomaNeural">🔊 (Gratis) Paloma - EE.UU. [Mujer Neutra]</option>
+                                        <!-- Voces de Google Cloud (Requiere API Key de GCP) -->
+                                        <option value="g-es-US-Neural2-A">🌟 (Google Cloud) Neural2 - Latino [Hombre Documental]</option>
+                                        <option value="g-es-MX-Neural2-C">🌟 (Google Cloud) Neural2 - México [Hombre Expresivo]</option>
+                                        <option value="g-es-ES-Neural2-F">🌟 (Google Cloud) Neural2 - España [Mujer Documental]</option>
+                                        <option value="g-es-ES-Chirp3-HD-F">✨ (Google Cloud) Chirp 3 HD - España [Mujer Generativa]</option>
                                         <!-- OpenAI Premium TTS -->
                                         <option value="alloy">(OpenAI) Alloy - Humana Neutra</option>
                                         <option value="onyx">(OpenAI) Onyx - Voz Grave Profesional</option>
                                         <option value="nova">(OpenAI) Nova - Expresiva y Dinámica</option>
                                     </select>
+                                    <div id="preview-voz-container" style="margin-top: 8px; display: none;">
+                                        <span id="preview-voz-status" style="font-size: 0.78rem; color: var(--accent-color); display: block; margin-bottom: 4px; font-weight: 500;">⏳ Generando muestra de audio...</span>
+                                        <audio id="audio-preview-voz" controls style="width: 100%; height: 36px; border-radius: 6px; background: #1e293b; display: none;"></audio>
+                                    </div>
                                 </div>
                                 <div class="input-group half">
                                     <label for="select-musica">Música de Fondo</label>
@@ -449,6 +470,19 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
                             <div class="media-container reference-thumb-box" style="aspect-ratio: 16/9; border-radius: var(--radius-md); overflow: hidden; border: 2px solid var(--primary-color); background: #090d16;">
                                 <img id="competitor-thumb-img" src="" alt="Miniatura de referencia" style="width: 100%; height: 100%; object-fit: cover;">
                             </div>
+                            
+                            <!-- DETECTOR DE ESTILO ARTÍSTICO DE VIDEO -->
+                            <div id="competitor-style-container" style="margin-top: 10px; padding: 10px; background: #090f1e; border: 1px dashed var(--accent-color); border-radius: var(--radius-sm);">
+                                <span id="competitor-style-loading" style="font-size: 0.85rem; color: var(--text-secondary); display: none;">
+                                    <span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid var(--accent-color); border-top-color:transparent; border-radius:50%; animation:spin 1s linear infinite; margin-right:5px; vertical-align:middle;"></span>
+                                    Analizando estilo artístico del video competidor...
+                                </span>
+                                <div id="competitor-style-result" style="display: none;">
+                                    <span style="font-size: 0.85rem; color: var(--text-secondary);">🎥 Estilo Detectado:</span>
+                                    <strong id="competitor-style-badge" style="font-size: 0.85rem; color: var(--accent-color); background: #1e293b; padding: 2px 6px; border-radius: 4px; margin-left: 5px;"></strong>
+                                    <p id="competitor-style-explanation" style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px; margin-bottom: 0; font-style: italic;"></p>
+                                </div>
+                            </div>
                         </div>
 
                         <button id="btn-producir" class="btn btn-accent btn-full btn-large">
@@ -577,6 +611,13 @@ https://www.youtube.com/@Dr.MiguelCastillo/videos</textarea>
                                 </div>
                                 <a id="download-opc3-btn" class="btn btn-secondary btn-small btn-full" style="display:none;" download>Descargar Opción 3</a>
                             </div>
+                        </div>
+                        
+                        <!-- Botón para abrir la carpeta de resultados exactos -->
+                        <div id="container-abrir-carpeta" style="margin-top: 25px; text-align: center; width: 100%;">
+                            <button id="btn-abrir-carpeta" class="btn btn-full btn-folder-results" disabled>
+                                📂 CARPETA DE RESULTADOS (ESPERANDO GENERACIÓN)
+                            </button>
                         </div>
                     </div>
                 </div>

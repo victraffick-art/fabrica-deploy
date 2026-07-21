@@ -1285,3 +1285,43 @@ textarea { resize: vertical; }
     .stats-charts-row { grid-template-columns: 1fr; }
     .stats-kpi-row { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ─── Botón de abrir carpeta de resultados con animación de pulso ─── */
+.btn-folder-results {
+    background: rgba(31, 41, 55, 0.4) !important;
+    border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    color: #4b5563 !important;
+    cursor: not-allowed !important;
+    pointer-events: none;
+    box-shadow: none !important;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    font-size: 1.02rem;
+    padding: 15px 24px;
+    opacity: 0.7;
+}
+
+.btn-folder-results.ready {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+    border: 1px solid rgba(16, 185, 129, 0.3) !important;
+    color: #ffffff !important;
+    cursor: pointer !important;
+    pointer-events: auto;
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.4), 0 0 30px rgba(16, 185, 129, 0.15) !important;
+    animation: folderPulse 2s infinite alternate;
+    opacity: 1;
+}
+
+.btn-folder-results.ready:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 25px rgba(16, 185, 129, 0.6), 0 0 45px rgba(16, 185, 129, 0.25) !important;
+}
+
+@keyframes folderPulse {
+    0% {
+        box-shadow: 0 0 15px rgba(16, 185, 129, 0.3), 0 0 25px rgba(16, 185, 129, 0.1);
+    }
+    100% {
+        box-shadow: 0 0 25px rgba(16, 185, 129, 0.65), 0 0 40px rgba(16, 185, 129, 0.3);
+        transform: scale(1.005);
+    }
+}
